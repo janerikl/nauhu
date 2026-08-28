@@ -120,6 +120,7 @@ export function Preview() {
     let lastTs = performance.now();
     let stalledSince: number | null = null;
     let lastObservedTime = -1;
+    let lastPlayRetryTs = 0;
 
     const tick = (now: number) => {
       const dt = (now - lastTs) / 1000;
@@ -127,6 +128,16 @@ export function Preview() {
 
       const video = videoRef.current;
       const clip = activeClipRef.current;
+
+      // Self-healing watchdog: we believe playback is in progress (isPlaying
+      // is true) but the element itself is paused - can happen if a play()
+      // call from within an automatic clip transition silently didn't take.
+      // Re-issue it, throttled, exactly like manually toggling play/pause
+      // (which is known to reliably resume it) does.
+      if (video && clip && video.paused && now - lastPlayRetryTs > 200) {
+        lastPlayRetryTs = now;
+        video.play().catch(() => {});
+      }
 
       if (clip && video) {
         if (video.currentTime >= clip.sourceOut - 0.02) {
