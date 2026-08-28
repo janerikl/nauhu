@@ -302,11 +302,29 @@ body {
   overflow: hidden;
   cursor: grab;
   box-shadow: 0 1px 3px rgba(0,0,0,0.4);
+  transition: box-shadow 0.1s ease, transform 0.1s ease;
 }
 
 .timeline-clip.selected {
   outline: 2px solid white;
   outline-offset: -2px;
+}
+
+.timeline-clip.dragging {
+  cursor: grabbing;
+  transform: scale(1.03);
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.6);
+  outline: 2px solid white;
+  outline-offset: -2px;
+  z-index: 4;
+  opacity: 0.92;
+}
+
+.timeline-clip.trimming {
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.5);
+  outline: 2px solid white;
+  outline-offset: -2px;
+  z-index: 4;
 }
 
 .clip-label {

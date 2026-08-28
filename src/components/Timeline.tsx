@@ -117,6 +117,16 @@ export function Timeline() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [drag, isScrubbing, clips, tracks, moveClip, trimClip, zoom]);
 
+  // Show a grabbing/resizing cursor across the whole page while a drag is in
+  // progress, since the mouse is often not directly over the clip anymore.
+  useEffect(() => {
+    if (!drag) return;
+    document.body.style.cursor = drag.mode === "move" ? "grabbing" : "ew-resize";
+    return () => {
+      document.body.style.cursor = "";
+    };
+  }, [drag]);
+
   const onTrackDrop = (e: React.DragEvent, trackId: string) => {
     e.preventDefault();
     const sourceId = e.dataTransfer.getData("application/x-source-id");
@@ -198,7 +208,14 @@ export function Timeline() {
                 .map((clip) => (
                   <div
                     key={clip.id}
-                    className={`timeline-clip ${selectedClipId === clip.id ? "selected" : ""}`}
+                    className={[
+                      "timeline-clip",
+                      selectedClipId === clip.id ? "selected" : "",
+                      drag?.clipId === clip.id && drag.mode === "move" ? "dragging" : "",
+                      drag?.clipId === clip.id && drag.mode !== "move" ? "trimming" : "",
+                    ]
+                      .filter(Boolean)
+                      .join(" ")}
                     style={{
                       left: timeToPx(clip.start),
                       width: Math.max(4, timeToPx(clip.start + clipDuration(clip)) - timeToPx(clip.start)),
