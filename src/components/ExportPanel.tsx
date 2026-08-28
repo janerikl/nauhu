@@ -6,18 +6,26 @@ import { Download, Loader2 } from "lucide-react";
 export function ExportPanel() {
   const clips = useEditorStore((s) => s.clips);
   const sources = useEditorStore((s) => s.sources);
+  const tracks = useEditorStore((s) => s.tracks);
   const [status, setStatus] = useState<"idle" | "loading" | "exporting" | "done" | "error">("idle");
   const [progress, setProgress] = useState(0);
   const [error, setError] = useState("");
 
-  const hasClips = clips.some((c) => c.trackId === "video-1");
+  // Export currently supports a single video track (no cross-track overlay
+  // compositing yet); pick the first video track, in track order, that
+  // actually has clips rather than hardcoding the original default track.
+  const exportTrackId = tracks.find(
+    (t) => t.kind === "video" && clips.some((c) => c.trackId === t.id)
+  )?.id;
+  const hasClips = exportTrackId !== undefined;
 
   const handleExport = async () => {
+    if (!exportTrackId) return;
     setStatus("loading");
     setError("");
     try {
       setStatus("exporting");
-      const blob = await exportTimeline(clips, sources, "video-1", setProgress);
+      const blob = await exportTimeline(clips, sources, exportTrackId, setProgress);
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;

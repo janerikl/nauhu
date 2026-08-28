@@ -1,14 +1,14 @@
 import { useEffect, useRef } from "react";
 import { useEditorStore } from "../store/editorStore";
-import { type Clip, clipEnd, findClipAt } from "../lib/timeline-math";
+import { type Clip, clipEnd, findActiveClip } from "../lib/timeline-math";
 import { Play, Pause } from "lucide-react";
 
-const VIDEO_TRACK_ID = "video-1";
 const SEEK_EPSILON = 0.05;
 
 export function Preview() {
   const clips = useEditorStore((s) => s.clips);
   const sources = useEditorStore((s) => s.sources);
+  const tracks = useEditorStore((s) => s.tracks);
   const playhead = useEditorStore((s) => s.playhead);
   const isPlaying = useEditorStore((s) => s.isPlaying);
   const setPlayhead = useEditorStore((s) => s.setPlayhead);
@@ -20,7 +20,7 @@ export function Preview() {
   const activeClipIdRef = useRef<string | null>(null);
   const activeClipRef = useRef<Clip | undefined>(undefined);
 
-  const activeClip = findClipAt(clips, VIDEO_TRACK_ID, playhead);
+  const activeClip = findActiveClip(clips, tracks, "video", playhead);
   const activeSource = activeClip ? sources.find((s) => s.id === activeClip.sourceId) : undefined;
   activeClipRef.current = activeClip;
 

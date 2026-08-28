@@ -139,12 +139,15 @@ body {
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  gap: 4px;
   background: var(--bg-elevated);
   border: 1px solid var(--border);
   color: var(--text);
   border-radius: 6px;
-  padding: 6px;
+  padding: 6px 8px;
+  font-size: 12px;
   cursor: pointer;
+  white-space: nowrap;
 }
 
 .btn-icon:hover:not(:disabled) { background: #33333e; }
@@ -191,6 +194,13 @@ body {
 }
 
 .timeline-time { color: var(--text-dim); margin-left: auto; font-variant-numeric: tabular-nums; }
+
+.timeline-divider {
+  width: 1px;
+  align-self: stretch;
+  background: var(--border);
+  margin: 0 2px;
+}
 
 .timeline-scroll { flex: 1; overflow: auto; position: relative; }
 
@@ -246,14 +256,33 @@ body {
 .track-label {
   position: sticky;
   left: 0;
-  display: inline-block;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
   font-size: 10px;
   color: var(--text-dim);
-  padding: 2px 6px;
+  padding: 2px 4px 2px 6px;
   background: var(--bg-elevated);
   border-radius: 4px;
   margin: 4px;
   z-index: 1;
+}
+
+.track-remove {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: none;
+  color: var(--text-dim);
+  border-radius: 3px;
+  padding: 2px;
+  cursor: pointer;
+}
+
+.track-remove:hover {
+  background: #3a3a46;
+  color: var(--text);
 }
 
 .timeline-clip {

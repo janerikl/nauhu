@@ -33,6 +33,8 @@ interface EditorState {
   zoom: number; // pixels per second
 
   addSource: (source: MediaSource) => void;
+  addTrack: (kind: "video" | "audio") => void;
+  removeTrack: (trackId: string) => void;
   addClipToTimeline: (sourceId: string, trackId: string, atStart?: number) => void;
   moveClip: (clipId: string, newStart: number) => void;
   trimClip: (clipId: string, edge: "in" | "out", time: number) => void;
@@ -58,6 +60,22 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   zoom: 60,
 
   addSource: (source) => set((s) => ({ sources: [...s.sources, source] })),
+
+  addTrack: (kind) =>
+    set((s) => {
+      const countOfKind = s.tracks.filter((t) => t.kind === kind).length;
+      const id = `${kind}-${Math.random().toString(36).slice(2, 7)}`;
+      const label = kind === "video" ? "Video" : "Audio";
+      return {
+        tracks: [...s.tracks, { id, name: `${label} ${countOfKind + 1}`, kind }],
+      };
+    }),
+
+  removeTrack: (trackId) =>
+    set((s) => ({
+      tracks: s.tracks.filter((t) => t.id !== trackId),
+      clips: s.clips.filter((c) => c.trackId !== trackId),
+    })),
 
   addClipToTimeline: (sourceId, trackId, atStart) => {
     const source = get().sources.find((s) => s.id === sourceId);

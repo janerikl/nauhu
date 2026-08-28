@@ -1,12 +1,14 @@
 import { describe, it, expect } from "vitest";
 import {
   type Clip,
+  type Track,
   clipEnd,
   moveClip,
   trimClip,
   splitClip,
   rippleDeleteClip,
   timelineDuration,
+  findActiveClip,
 } from "./timeline-math";
 
 const makeClip = (overrides: Partial<Clip> = {}): Clip => ({
@@ -122,5 +124,30 @@ describe("timelineDuration", () => {
 
   it("returns 0 for empty timeline", () => {
     expect(timelineDuration([])).toBe(0);
+  });
+});
+
+describe("findActiveClip", () => {
+  const tracks: Track[] = [
+    { id: "video-1", name: "Video 1", kind: "video" },
+    { id: "video-2", name: "Video 2", kind: "video" },
+  ];
+
+  it("picks the first (topmost) video track that has a clip at the given time", () => {
+    const clips = [
+      makeClip({ id: "bottom", trackId: "video-1", start: 0, sourceOut: 5 }),
+      makeClip({ id: "top", trackId: "video-2", start: 0, sourceOut: 5 }),
+    ];
+    expect(findActiveClip(clips, tracks, "video", 2)?.id).toBe("bottom");
+  });
+
+  it("falls through to a lower track when the topmost has no clip at that time", () => {
+    const clips = [makeClip({ id: "bottom", trackId: "video-1", start: 0, sourceOut: 5 })];
+    expect(findActiveClip(clips, tracks, "video", 2)?.id).toBe("bottom");
+  });
+
+  it("returns undefined when no track has a clip at the given time", () => {
+    const clips = [makeClip({ id: "a", trackId: "video-1", start: 10, sourceOut: 15 })];
+    expect(findActiveClip(clips, tracks, "video", 2)).toBeUndefined();
   });
 });

@@ -1,7 +1,7 @@
 import { useCallback, useRef, useState } from "react";
 import { useEditorStore } from "../store/editorStore";
 import { clipDuration, clipEnd } from "../lib/timeline-math";
-import { Scissors, Trash2 } from "lucide-react";
+import { Scissors, Trash2, Plus, X } from "lucide-react";
 
 const TRACK_HEIGHT = 56;
 const RULER_HEIGHT = 24;
@@ -14,6 +14,8 @@ export function Timeline() {
   const selectedClipId = useEditorStore((s) => s.selectedClipId);
   const duration = useEditorStore((s) => s.duration());
 
+  const addTrack = useEditorStore((s) => s.addTrack);
+  const removeTrack = useEditorStore((s) => s.removeTrack);
   const addClipToTimeline = useEditorStore((s) => s.addClipToTimeline);
   const moveClip = useEditorStore((s) => s.moveClip);
   const trimClip = useEditorStore((s) => s.trimClip);
@@ -116,6 +118,13 @@ export function Timeline() {
         >
           <Trash2 size={14} />
         </button>
+        <span className="timeline-divider" />
+        <button className="btn-icon" onClick={() => addTrack("video")} title="Add video track">
+          <Plus size={14} /> Video
+        </button>
+        <button className="btn-icon" onClick={() => addTrack("audio")} title="Add audio track">
+          <Plus size={14} /> Audio
+        </button>
         <span className="timeline-time">{playhead.toFixed(2)}s</span>
       </div>
 
@@ -150,7 +159,19 @@ export function Timeline() {
               onDragOver={(e) => e.preventDefault()}
               onDrop={(e) => onTrackDrop(e, track.id)}
             >
-              <div className="track-label">{track.name}</div>
+              <div className="track-label">
+                <span>{track.name}</span>
+                <button
+                  className="track-remove"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    removeTrack(track.id);
+                  }}
+                  title="Remove track"
+                >
+                  <X size={10} />
+                </button>
+              </div>
               {clips
                 .filter((c) => c.trackId === track.id)
                 .map((clip) => (

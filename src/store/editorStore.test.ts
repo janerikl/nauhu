@@ -4,6 +4,10 @@ import { useEditorStore } from "./editorStore";
 const resetStore = () => {
   useEditorStore.setState({
     sources: [],
+    tracks: [
+      { id: "video-1", name: "Video", kind: "video" },
+      { id: "audio-1", name: "Audio", kind: "audio" },
+    ],
     clips: [],
     playhead: 0,
     isPlaying: false,
@@ -41,5 +45,34 @@ describe("editorStore splitClipAtPlayhead", () => {
       .clips.map((c) => Number((c.sourceOut - c.sourceIn).toFixed(2)))
       .sort((a, b) => a - b);
     expect(durations).toEqual([3, 3, 4]);
+  });
+});
+
+describe("editorStore track management", () => {
+  beforeEach(resetStore);
+
+  it("adds additional video tracks with distinct ids and incrementing names", () => {
+    const { addTrack } = useEditorStore.getState();
+    addTrack("video");
+    addTrack("video");
+
+    const videoTracks = useEditorStore.getState().tracks.filter((t) => t.kind === "video");
+    expect(videoTracks).toHaveLength(3);
+    expect(new Set(videoTracks.map((t) => t.id)).size).toBe(3);
+    expect(videoTracks.map((t) => t.name)).toEqual(["Video", "Video 2", "Video 3"]);
+  });
+
+  it("removing a track also removes its clips", () => {
+    const { addTrack, addSource, addClipToTimeline, removeTrack } = useEditorStore.getState();
+    addTrack("video");
+    const newTrackId = useEditorStore.getState().tracks.at(-1)!.id;
+
+    addSource({ id: "src-1", name: "clip.mp4", url: "blob:fake", duration: 5, kind: "video" });
+    addClipToTimeline("src-1", newTrackId);
+    expect(useEditorStore.getState().clips).toHaveLength(1);
+
+    removeTrack(newTrackId);
+    expect(useEditorStore.getState().tracks.find((t) => t.id === newTrackId)).toBeUndefined();
+    expect(useEditorStore.getState().clips).toHaveLength(0);
   });
 });

@@ -115,3 +115,22 @@ export function rippleDeleteClip(clips: Clip[], clipId: string): Clip[] {
 export function findClipAt(clips: Clip[], trackId: string, time: number): Clip | undefined {
   return clips.find((c) => c.trackId === trackId && time >= c.start && time < clipEnd(c));
 }
+
+/**
+ * Finds the clip that should be visible at `time` across all tracks of the
+ * given kind, in track order — the first (topmost) track with a clip
+ * covering `time` wins, matching standard layer-compositing behavior.
+ */
+export function findActiveClip(
+  clips: Clip[],
+  tracks: Track[],
+  kind: Track["kind"],
+  time: number
+): Clip | undefined {
+  for (const track of tracks) {
+    if (track.kind !== kind) continue;
+    const clip = findClipAt(clips, track.id, time);
+    if (clip) return clip;
+  }
+  return undefined;
+}
