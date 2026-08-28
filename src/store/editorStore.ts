@@ -6,6 +6,7 @@ import {
   trimClip as trimClipMath,
   splitClip as splitClipMath,
   rippleDeleteClip as rippleDeleteClipMath,
+  findClipAt,
   timelineDuration,
 } from "../lib/timeline-math";
 
@@ -84,7 +85,14 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     set((s) => ({ clips: trimClipMath(s.clips, clipId, edge, time) })),
 
   splitClipAtPlayhead: (clipId) =>
-    set((s) => ({ clips: splitClipMath(s.clips, clipId, s.playhead) })),
+    set((s) => {
+      const clip = s.clips.find((c) => c.id === clipId);
+      const clips = clip ? splitClipMath(s.clips, clipId, s.playhead) : s.clips;
+      const selectedClipId = clip
+        ? (findClipAt(clips, clip.trackId, s.playhead)?.id ?? s.selectedClipId)
+        : s.selectedClipId;
+      return { clips, selectedClipId };
+    }),
 
   removeClip: (clipId) =>
     set((s) => ({

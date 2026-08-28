@@ -1,0 +1,45 @@
+import { describe, it, expect, beforeEach } from "vitest";
+import { useEditorStore } from "./editorStore";
+
+const resetStore = () => {
+  useEditorStore.setState({
+    sources: [],
+    clips: [],
+    playhead: 0,
+    isPlaying: false,
+    selectedClipId: null,
+  });
+};
+
+describe("editorStore splitClipAtPlayhead", () => {
+  beforeEach(resetStore);
+
+  it("allows splitting the same original clip multiple times in sequence", () => {
+    const { addSource, addClipToTimeline, splitClipAtPlayhead, setPlayhead } =
+      useEditorStore.getState();
+
+    addSource({ id: "src-1", name: "clip.mp4", url: "blob:fake", duration: 10, kind: "video" });
+    addClipToTimeline("src-1", "video-1");
+
+    const originalId = useEditorStore.getState().clips[0].id;
+
+    setPlayhead(4);
+    splitClipAtPlayhead(originalId);
+    expect(useEditorStore.getState().clips).toHaveLength(2);
+
+    // Selection should now follow whichever piece the playhead landed in,
+    // so a second split further along keeps working without reselecting.
+    const selectedAfterFirstSplit = useEditorStore.getState().selectedClipId;
+    expect(selectedAfterFirstSplit).not.toBeNull();
+
+    setPlayhead(7);
+    splitClipAtPlayhead(selectedAfterFirstSplit!);
+    expect(useEditorStore.getState().clips).toHaveLength(3);
+
+    const durations = useEditorStore
+      .getState()
+      .clips.map((c) => Number((c.sourceOut - c.sourceIn).toFixed(2)))
+      .sort((a, b) => a - b);
+    expect(durations).toEqual([3, 3, 4]);
+  });
+});
