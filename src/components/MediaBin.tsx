@@ -29,6 +29,7 @@ export function MediaBin() {
           url,
           duration,
           kind: file.type.startsWith("audio") ? "audio" : "video",
+          blob: file,
         });
       }
     },

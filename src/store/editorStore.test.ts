@@ -22,7 +22,7 @@ describe("editorStore splitClipAtPlayhead", () => {
     const { addSource, addClipToTimeline, splitClipAtPlayhead, setPlayhead } =
       useEditorStore.getState();
 
-    addSource({ id: "src-1", name: "clip.mp4", url: "blob:fake", duration: 10, kind: "video" });
+    addSource({ id: "src-1", name: "clip.mp4", url: "blob:fake", duration: 10, kind: "video", blob: new Blob() });
     addClipToTimeline("src-1", "video-1");
 
     const originalId = useEditorStore.getState().clips[0].id;
@@ -67,7 +67,7 @@ describe("editorStore track management", () => {
     addTrack("video");
     const newTrackId = useEditorStore.getState().tracks.at(-1)!.id;
 
-    addSource({ id: "src-1", name: "clip.mp4", url: "blob:fake", duration: 5, kind: "video" });
+    addSource({ id: "src-1", name: "clip.mp4", url: "blob:fake", duration: 5, kind: "video", blob: new Blob() });
     addClipToTimeline("src-1", newTrackId);
     expect(useEditorStore.getState().clips).toHaveLength(1);
 

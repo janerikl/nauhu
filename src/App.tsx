@@ -4,12 +4,16 @@ import { Timeline } from "./components/Timeline";
 import { Preview } from "./components/Preview";
 import { ExportPanel } from "./components/ExportPanel";
 import { useEditorStore } from "./store/editorStore";
+import { useProjectPersistence } from "./hooks/useProjectPersistence";
 import "./App.css";
 
 function App() {
   const selectedClipId = useEditorStore((s) => s.selectedClipId);
   const splitClipAtPlayhead = useEditorStore((s) => s.splitClipAtPlayhead);
   const removeClip = useEditorStore((s) => s.removeClip);
+  const saveStatus = useEditorStore((s) => s.saveStatus);
+
+  useProjectPersistence();
 
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
@@ -31,7 +35,12 @@ function App() {
     <div className="app">
       <header className="app-header">
         <h1>Web Video Editor</h1>
-        <ExportPanel />
+        <div className="app-header-right">
+          {saveStatus !== "idle" && (
+            <span className="save-status">{saveStatus === "saving" ? "Saving…" : "Saved"}</span>
+          )}
+          <ExportPanel />
+        </div>
       </header>
       <div className="app-body">
         <MediaBin />

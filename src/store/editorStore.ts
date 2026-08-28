@@ -17,6 +17,15 @@ export interface MediaSource {
   duration: number;
   kind: "video" | "audio";
   thumbnail?: string;
+  /** The raw file data, kept in memory so it can be persisted (e.g. to IndexedDB). */
+  blob: Blob;
+}
+
+export interface HydrateData {
+  tracks: Track[];
+  clips: Clip[];
+  sources: MediaSource[];
+  zoom: number;
 }
 
 const CLIP_COLORS = ["#6366f1", "#22c55e", "#f97316", "#ec4899", "#06b6d4", "#eab308"];
@@ -45,6 +54,10 @@ interface EditorState {
   setIsPlaying: (playing: boolean) => void;
   setZoom: (zoom: number) => void;
   duration: () => number;
+
+  saveStatus: "idle" | "saving" | "saved";
+  setSaveStatus: (status: "idle" | "saving" | "saved") => void;
+  hydrate: (data: HydrateData) => void;
 }
 
 export const useEditorStore = create<EditorState>((set, get) => ({
@@ -123,4 +136,17 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   setIsPlaying: (playing) => set({ isPlaying: playing }),
   setZoom: (zoom) => set({ zoom: Math.min(300, Math.max(10, zoom)) }),
   duration: () => timelineDuration(get().clips),
+
+  saveStatus: "idle",
+  setSaveStatus: (status) => set({ saveStatus: status }),
+  hydrate: (data) =>
+    set({
+      tracks: data.tracks,
+      clips: data.clips,
+      sources: data.sources,
+      zoom: data.zoom,
+      playhead: 0,
+      isPlaying: false,
+      selectedClipId: null,
+    }),
 }));

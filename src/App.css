@@ -41,6 +41,17 @@ body {
   margin: 0;
 }
 
+.app-header-right {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.save-status {
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
 .app-body {
   display: flex;
   flex: 1;
