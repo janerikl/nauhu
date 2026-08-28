@@ -37,11 +37,25 @@ export function Preview() {
     if (activeClipIdRef.current === activeClip.id) return;
     activeClipIdRef.current = activeClip.id;
 
+    const targetTime = activeClip.sourceIn + (playhead - activeClip.start);
+
+    const seekAndResumeIfPlaying = () => {
+      video.currentTime = targetTime;
+      if (useEditorStore.getState().isPlaying) video.play().catch(() => {});
+    };
+
     if (loadedSourceUrlRef.current !== activeSource.url) {
+      // Setting currentTime immediately after assigning a new .src is a race:
+      // the browser can reset currentTime back to 0 once it actually starts
+      // loading the new source, silently clobbering the seek. Wait for
+      // loadedmetadata (when currentTime becomes settable/durable) instead.
       loadedSourceUrlRef.current = activeSource.url;
       video.src = activeSource.url;
+      video.addEventListener("loadedmetadata", seekAndResumeIfPlaying, { once: true });
+      return () => video.removeEventListener("loadedmetadata", seekAndResumeIfPlaying);
     }
-    video.currentTime = activeClip.sourceIn + (playhead - activeClip.start);
+
+    seekAndResumeIfPlaying();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeClip?.id, activeSource?.url]);
 
