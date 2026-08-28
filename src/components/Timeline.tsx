@@ -60,6 +60,7 @@ export function Timeline() {
   };
 
   const startScrub = (e: React.MouseEvent) => {
+    e.preventDefault();
     e.stopPropagation();
     seekFromClientX(e.clientX);
     setIsScrubbing(true);
@@ -70,6 +71,7 @@ export function Timeline() {
     clipId: string,
     mode: "move" | "trim-in" | "trim-out"
   ) => {
+    e.preventDefault(); // avoid native text-selection drag when starting on the clip label
     e.stopPropagation();
     selectClip(clipId);
     setDrag({ clipId, mode, startX: e.clientX });

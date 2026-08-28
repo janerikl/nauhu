@@ -191,6 +191,7 @@ body {
 .timeline {
   height: 260px;
   border-top: 1px solid var(--border);
+  user-select: none;
   background: var(--bg-panel);
   display: flex;
   flex-direction: column;
