@@ -29,16 +29,23 @@ export function Timeline() {
     startX: number;
     origStart: number;
   } | null>(null);
+  const [isScrubbing, setIsScrubbing] = useState(false);
 
   const timeToPx = (t: number) => t * zoom;
   const pxToTime = (px: number) => px / zoom;
 
   const totalWidth = Math.max(800, (duration + 10) * zoom);
 
-  const handleRulerClick = (e: React.MouseEvent) => {
+  const seekFromClientX = (clientX: number) => {
     const rect = containerRef.current!.getBoundingClientRect();
-    const x = e.clientX - rect.left + containerRef.current!.scrollLeft;
-    setPlayhead(pxToTime(x));
+    const x = clientX - rect.left + containerRef.current!.scrollLeft;
+    setPlayhead(Math.max(0, pxToTime(x)));
+  };
+
+  const startScrub = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    seekFromClientX(e.clientX);
+    setIsScrubbing(true);
   };
 
   const onClipMouseDown = (
@@ -53,6 +60,10 @@ export function Timeline() {
 
   const handleMouseMove = useCallback(
     (e: React.MouseEvent) => {
+      if (isScrubbing) {
+        seekFromClientX(e.clientX);
+        return;
+      }
       if (!drag) return;
       const deltaPx = e.clientX - drag.startX;
       const deltaT = pxToTime(deltaPx);
@@ -68,10 +79,14 @@ export function Timeline() {
       }
       setDrag({ ...drag, startX: e.clientX });
     },
-    [drag, clips, moveClip, trimClip, zoom]
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [drag, isScrubbing, clips, moveClip, trimClip, zoom]
   );
 
-  const handleMouseUp = () => setDrag(null);
+  const handleMouseUp = () => {
+    setDrag(null);
+    setIsScrubbing(false);
+  };
 
   const onTrackDrop = (e: React.DragEvent, trackId: string) => {
     e.preventDefault();
@@ -112,7 +127,7 @@ export function Timeline() {
         onMouseLeave={handleMouseUp}
       >
         <div className="timeline-inner" style={{ width: totalWidth }}>
-          <div className="timeline-ruler" style={{ height: RULER_HEIGHT }} onClick={handleRulerClick}>
+          <div className="timeline-ruler" style={{ height: RULER_HEIGHT }} onMouseDown={startScrub}>
             {Array.from({ length: Math.ceil(totalWidth / zoom) }).map((_, i) => (
               <div key={i} className="ruler-tick" style={{ left: i * zoom }}>
                 {i}s
@@ -123,7 +138,9 @@ export function Timeline() {
           <div
             className="playhead"
             style={{ left: timeToPx(playhead), height: tracks.length * TRACK_HEIGHT + RULER_HEIGHT }}
-          />
+          >
+            <div className="playhead-handle" onMouseDown={startScrub} />
+          </div>
 
           {tracks.map((track) => (
             <div
