@@ -55,33 +55,43 @@ export function Preview() {
   }, [isPlaying, activeClip?.id]);
 
   // While playing, drive the timeline playhead from the video element's own
-  // currentTime so displayed time always matches actual playback, and detect
-  // when a clip ends to advance to the next one (or stop at timeline end).
+  // currentTime so displayed time always matches actual playback, detect
+  // when a clip ends to advance to the next one, and fall back to a
+  // wall-clock advance through gaps (no clip under the playhead) since
+  // there's no video element/currentTime to follow there.
   useEffect(() => {
     if (!isPlaying) return;
+    let lastTs = performance.now();
 
-    const tick = () => {
+    const tick = (now: number) => {
+      const dt = (now - lastTs) / 1000;
+      lastTs = now;
+
       const video = videoRef.current;
       const clip = activeClipRef.current;
-      if (!video || !clip) {
-        rafRef.current = requestAnimationFrame(tick);
-        return;
-      }
 
-      if (video.currentTime >= clip.sourceOut - 0.02) {
-        const next = clipEnd(clip);
+      if (clip && video) {
+        if (video.currentTime >= clip.sourceOut - 0.02) {
+          const next = clipEnd(clip);
+          if (next >= duration) {
+            setIsPlaying(false);
+            setPlayhead(duration);
+            return;
+          }
+          setPlayhead(next);
+        } else {
+          setPlayhead(clip.start + (video.currentTime - clip.sourceIn));
+        }
+      } else {
+        const next = useEditorStore.getState().playhead + dt;
         if (next >= duration) {
           setIsPlaying(false);
           setPlayhead(duration);
           return;
         }
         setPlayhead(next);
-        rafRef.current = requestAnimationFrame(tick);
-        return;
       }
 
-      const timelinePos = clip.start + (video.currentTime - clip.sourceIn);
-      setPlayhead(timelinePos);
       rafRef.current = requestAnimationFrame(tick);
     };
 
