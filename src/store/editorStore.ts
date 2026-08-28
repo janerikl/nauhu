@@ -36,7 +36,7 @@ interface EditorState {
   addTrack: (kind: "video" | "audio") => void;
   removeTrack: (trackId: string) => void;
   addClipToTimeline: (sourceId: string, trackId: string, atStart?: number) => void;
-  moveClip: (clipId: string, newStart: number) => void;
+  moveClip: (clipId: string, newStart: number, targetTrackId?: string) => void;
   trimClip: (clipId: string, edge: "in" | "out", time: number) => void;
   splitClipAtPlayhead: (clipId: string) => void;
   removeClip: (clipId: string) => void;
@@ -96,8 +96,8 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     set((s) => ({ clips: [...s.clips, clip] }));
   },
 
-  moveClip: (clipId, newStart) =>
-    set((s) => ({ clips: moveClipMath(s.clips, clipId, newStart) })),
+  moveClip: (clipId, newStart, targetTrackId) =>
+    set((s) => ({ clips: moveClipMath(s.clips, clipId, newStart, targetTrackId) })),
 
   trimClip: (clipId, edge, time) =>
     set((s) => ({ clips: trimClipMath(s.clips, clipId, edge, time) })),

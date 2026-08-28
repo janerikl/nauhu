@@ -25,13 +25,22 @@ export function timelineDuration(clips: Clip[]): number {
   return clips.reduce((max, c) => Math.max(max, clipEnd(c)), 0);
 }
 
-/** Move a clip to a new start time, clamped to >= 0, no overlap with siblings on same track. */
-export function moveClip(clips: Clip[], clipId: string, newStart: number): Clip[] {
+/**
+ * Move a clip to a new start time (clamped to >= 0) and, optionally, onto a
+ * different track. No overlap with siblings on the destination track.
+ */
+export function moveClip(
+  clips: Clip[],
+  clipId: string,
+  newStart: number,
+  targetTrackId?: string
+): Clip[] {
   const clip = clips.find((c) => c.id === clipId);
   if (!clip) return clips;
+  const trackId = targetTrackId ?? clip.trackId;
   const duration = clipDuration(clip);
   const clampedStart = Math.max(0, newStart);
-  const siblings = clips.filter((c) => c.trackId === clip.trackId && c.id !== clipId);
+  const siblings = clips.filter((c) => c.trackId === trackId && c.id !== clipId);
 
   let resolvedStart = clampedStart;
   for (const s of siblings) {
@@ -43,7 +52,7 @@ export function moveClip(clips: Clip[], clipId: string, newStart: number): Clip[
     }
   }
 
-  return clips.map((c) => (c.id === clipId ? { ...c, start: resolvedStart } : c));
+  return clips.map((c) => (c.id === clipId ? { ...c, start: resolvedStart, trackId } : c));
 }
 
 /** Trim the left (in) or right (out) edge of a clip by dragging to `time` (timeline seconds). */

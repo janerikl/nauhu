@@ -89,6 +89,26 @@ describe("moveClip", () => {
     const b = result.find((c) => c.id === "b")!;
     expect(b.start).toBeGreaterThanOrEqual(clipEnd(a));
   });
+
+  it("moves a clip onto a different track when a target track is given", () => {
+    const clips = [makeClip({ id: "a", trackId: "video-1", start: 0, sourceOut: 5 })];
+    const result = moveClip(clips, "a", 3, "video-2");
+    expect(result[0].trackId).toBe("video-2");
+    expect(result[0].start).toBe(3);
+  });
+
+  it("resolves overlap against siblings on the destination track, not the origin track", () => {
+    const clips = [
+      makeClip({ id: "a", trackId: "video-1", start: 0, sourceOut: 5 }),
+      makeClip({ id: "b", trackId: "video-2", start: 10, sourceIn: 0, sourceOut: 16 }),
+    ];
+    const result = moveClip(clips, "a", 8, "video-2");
+    const moved = result.find((c) => c.id === "a")!;
+    const sibling = result.find((c) => c.id === "b")!;
+    expect(moved.trackId).toBe("video-2");
+    const noOverlap = moved.start >= clipEnd(sibling) || moved.start + 5 <= sibling.start;
+    expect(noOverlap).toBe(true);
+  });
 });
 
 describe("rippleDeleteClip", () => {

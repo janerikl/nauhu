@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useEditorStore } from "../store/editorStore";
 import { clipDuration, clipEnd } from "../lib/timeline-math";
 import { Scissors, Trash2, Plus, X } from "lucide-react";
@@ -29,9 +29,9 @@ export function Timeline() {
     clipId: string;
     mode: "move" | "trim-in" | "trim-out";
     startX: number;
-    origStart: number;
   } | null>(null);
   const [isScrubbing, setIsScrubbing] = useState(false);
+  const [hoverTrackId, setHoverTrackId] = useState<string | null>(null);
 
   const timeToPx = (t: number) => t * zoom;
   const pxToTime = (px: number) => px / zoom;
@@ -42,6 +42,13 @@ export function Timeline() {
     const rect = containerRef.current!.getBoundingClientRect();
     const x = clientX - rect.left + containerRef.current!.scrollLeft;
     setPlayhead(Math.max(0, pxToTime(x)));
+  };
+
+  const trackIdAtClientY = (clientY: number): string | null => {
+    const rect = containerRef.current!.getBoundingClientRect();
+    const y = clientY - rect.top + containerRef.current!.scrollTop;
+    const index = Math.floor((y - RULER_HEIGHT) / TRACK_HEIGHT);
+    return tracks[index]?.id ?? null;
   };
 
   const startScrub = (e: React.MouseEvent) => {
@@ -57,11 +64,16 @@ export function Timeline() {
   ) => {
     e.stopPropagation();
     selectClip(clipId);
-    setDrag({ clipId, mode, startX: e.clientX, origStart: 0 });
+    setDrag({ clipId, mode, startX: e.clientX });
   };
 
-  const handleMouseMove = useCallback(
-    (e: React.MouseEvent) => {
+  // Attach drag/scrub listeners to the window (not just the timeline element)
+  // so a mouseup or mousemove that lands outside the timeline while dragging
+  // fast still ends the drag, instead of leaving it stuck.
+  useEffect(() => {
+    if (!drag && !isScrubbing) return;
+
+    const onMove = (e: MouseEvent) => {
       if (isScrubbing) {
         seekFromClientX(e.clientX);
         return;
@@ -73,22 +85,37 @@ export function Timeline() {
       if (!clip) return;
 
       if (drag.mode === "move") {
-        moveClip(drag.clipId, clip.start + deltaT);
+        const originalTrack = tracks.find((t) => t.id === clip.trackId);
+        const hovered = trackIdAtClientY(e.clientY);
+        const hoveredTrack = tracks.find((t) => t.id === hovered);
+        const targetTrackId =
+          hoveredTrack && originalTrack && hoveredTrack.kind === originalTrack.kind
+            ? hoveredTrack.id
+            : clip.trackId;
+        setHoverTrackId(targetTrackId);
+        moveClip(drag.clipId, clip.start + deltaT, targetTrackId);
       } else if (drag.mode === "trim-in") {
         trimClip(drag.clipId, "in", clip.start + deltaT);
       } else {
         trimClip(drag.clipId, "out", clip.start + clipDuration(clip) + deltaT);
       }
-      setDrag({ ...drag, startX: e.clientX });
-    },
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [drag, isScrubbing, clips, moveClip, trimClip, zoom]
-  );
+      setDrag((d) => (d ? { ...d, startX: e.clientX } : d));
+    };
 
-  const handleMouseUp = () => {
-    setDrag(null);
-    setIsScrubbing(false);
-  };
+    const onUp = () => {
+      setDrag(null);
+      setIsScrubbing(false);
+      setHoverTrackId(null);
+    };
+
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+    return () => {
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [drag, isScrubbing, clips, tracks, moveClip, trimClip, zoom]);
 
   const onTrackDrop = (e: React.DragEvent, trackId: string) => {
     e.preventDefault();
@@ -128,13 +155,7 @@ export function Timeline() {
         <span className="timeline-time">{playhead.toFixed(2)}s</span>
       </div>
 
-      <div
-        className="timeline-scroll"
-        ref={containerRef}
-        onMouseMove={handleMouseMove}
-        onMouseUp={handleMouseUp}
-        onMouseLeave={handleMouseUp}
-      >
+      <div className="timeline-scroll" ref={containerRef}>
         <div className="timeline-inner" style={{ width: totalWidth }}>
           <div className="timeline-ruler" style={{ height: RULER_HEIGHT }} onMouseDown={startScrub}>
             {Array.from({ length: Math.ceil(totalWidth / zoom) }).map((_, i) => (
@@ -154,7 +175,7 @@ export function Timeline() {
           {tracks.map((track) => (
             <div
               key={track.id}
-              className={`timeline-track track-${track.kind}`}
+              className={`timeline-track track-${track.kind} ${hoverTrackId === track.id ? "drop-target" : ""}`}
               style={{ height: TRACK_HEIGHT }}
               onDragOver={(e) => e.preventDefault()}
               onDrop={(e) => onTrackDrop(e, track.id)}

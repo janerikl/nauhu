@@ -253,6 +253,12 @@ body {
   background: var(--bg);
 }
 
+.timeline-track.drop-target {
+  background: #26263a;
+  outline: 1px dashed var(--accent);
+  outline-offset: -1px;
+}
+
 .track-label {
   position: sticky;
   left: 0;
