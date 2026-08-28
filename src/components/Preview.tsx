@@ -78,6 +78,38 @@ export function Preview() {
     else video.pause();
   }, [isPlaying, activeClip?.id]);
 
+  // Advances the playhead past `clip` to whatever comes next (another clip,
+  // a gap, or the end of the timeline). Shared by the polling threshold
+  // check below and the video's native 'ended' backstop.
+  const advancePastClip = (clip: Clip) => {
+    const next = clipEnd(clip);
+    if (next >= duration) {
+      setIsPlaying(false);
+      setPlayhead(duration);
+      return;
+    }
+    setPlayhead(next);
+  };
+
+  // A clip can stop advancing (native 'ended', a stall, decoder precision)
+  // slightly before currentTime reaches the sourceOut-based polling
+  // threshold in the tick loop below, in which case that loop's condition
+  // never becomes true and playback looks permanently stuck at the
+  // boundary. The video's own 'ended' event is a reliable backstop for
+  // this: whenever the browser itself decides this clip is done, advance
+  // immediately regardless of what currentTime polling has observed.
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video) return;
+    const onEnded = () => {
+      const clip = activeClipRef.current;
+      if (clip) advancePastClip(clip);
+    };
+    video.addEventListener("ended", onEnded);
+    return () => video.removeEventListener("ended", onEnded);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeClip?.id, duration]);
+
   // While playing, drive the timeline playhead from the video element's own
   // currentTime so displayed time always matches actual playback, detect
   // when a clip ends to advance to the next one, and fall back to a
@@ -86,6 +118,8 @@ export function Preview() {
   useEffect(() => {
     if (!isPlaying) return;
     let lastTs = performance.now();
+    let stalledSince: number | null = null;
+    let lastObservedTime = -1;
 
     const tick = (now: number) => {
       const dt = (now - lastTs) / 1000;
@@ -96,15 +130,30 @@ export function Preview() {
 
       if (clip && video) {
         if (video.currentTime >= clip.sourceOut - 0.02) {
-          const next = clipEnd(clip);
-          if (next >= duration) {
-            setIsPlaying(false);
-            setPlayhead(duration);
-            return;
-          }
-          setPlayhead(next);
+          advancePastClip(clip);
+          stalledSince = null;
+          lastObservedTime = -1;
         } else {
           setPlayhead(clip.start + (video.currentTime - clip.sourceIn));
+
+          // Backstop for when the video stops making progress (paused,
+          // buffering-stalled, or the browser's own end-of-media handling)
+          // before currentTime ever reaches the threshold above: if it
+          // hasn't moved for ~600ms while we still expect it to be playing,
+          // treat this clip as done rather than staying stuck indefinitely.
+          if (video.currentTime === lastObservedTime) {
+            if (stalledSince === null) stalledSince = now;
+            else if (now - stalledSince > 600) {
+              advancePastClip(clip);
+              stalledSince = null;
+              lastObservedTime = -1;
+              rafRef.current = requestAnimationFrame(tick);
+              return;
+            }
+          } else {
+            lastObservedTime = video.currentTime;
+            stalledSince = null;
+          }
         }
       } else {
         const next = useEditorStore.getState().playhead + dt;
@@ -121,6 +170,7 @@ export function Preview() {
 
     rafRef.current = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(rafRef.current);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isPlaying, duration, setPlayhead, setIsPlaying]);
 
   return (
