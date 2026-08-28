@@ -1,0 +1,117 @@
+export interface Clip {
+  id: string;
+  trackId: string;
+  sourceId: string;
+  sourceName: string;
+  /** offset into the source media where this clip's content starts, seconds */
+  sourceIn: number;
+  /** offset into the source media where this clip's content ends, seconds */
+  sourceOut: number;
+  /** position on the timeline, seconds */
+  start: number;
+  color: string;
+}
+
+export interface Track {
+  id: string;
+  name: string;
+  kind: "video" | "audio" | "text";
+}
+
+export const clipDuration = (clip: Clip) => clip.sourceOut - clip.sourceIn;
+export const clipEnd = (clip: Clip) => clip.start + clipDuration(clip);
+
+export function timelineDuration(clips: Clip[]): number {
+  return clips.reduce((max, c) => Math.max(max, clipEnd(c)), 0);
+}
+
+/** Move a clip to a new start time, clamped to >= 0, no overlap with siblings on same track. */
+export function moveClip(clips: Clip[], clipId: string, newStart: number): Clip[] {
+  const clip = clips.find((c) => c.id === clipId);
+  if (!clip) return clips;
+  const duration = clipDuration(clip);
+  const clampedStart = Math.max(0, newStart);
+  const siblings = clips.filter((c) => c.trackId === clip.trackId && c.id !== clipId);
+
+  let resolvedStart = clampedStart;
+  for (const s of siblings) {
+    const overlaps = resolvedStart < clipEnd(s) && resolvedStart + duration > s.start;
+    if (overlaps) {
+      const pushRight = Math.abs(clampedStart - clipEnd(s));
+      const pushLeft = Math.abs(clampedStart - (s.start - duration));
+      resolvedStart = pushRight <= pushLeft ? clipEnd(s) : Math.max(0, s.start - duration);
+    }
+  }
+
+  return clips.map((c) => (c.id === clipId ? { ...c, start: resolvedStart } : c));
+}
+
+/** Trim the left (in) or right (out) edge of a clip by dragging to `time` (timeline seconds). */
+export function trimClip(
+  clips: Clip[],
+  clipId: string,
+  edge: "in" | "out",
+  time: number
+): Clip[] {
+  const clip = clips.find((c) => c.id === clipId);
+  if (!clip) return clips;
+  const MIN_DURATION = 0.1;
+
+  if (edge === "in") {
+    const maxIn = clip.sourceOut - MIN_DURATION;
+    const delta = time - clip.start;
+    const newSourceIn = Math.min(maxIn, Math.max(0, clip.sourceIn + delta));
+    const actualDelta = newSourceIn - clip.sourceIn;
+    return clips.map((c) =>
+      c.id === clipId
+        ? { ...c, sourceIn: newSourceIn, start: Math.max(0, c.start + actualDelta) }
+        : c
+    );
+  } else {
+    const minOut = clip.sourceIn + MIN_DURATION;
+    const newSourceOut = Math.max(minOut, clip.sourceIn + (time - clip.start));
+    return clips.map((c) => (c.id === clipId ? { ...c, sourceOut: newSourceOut } : c));
+  }
+}
+
+/** Split a clip at an absolute timeline position into two clips. */
+export function splitClip(clips: Clip[], clipId: string, atTime: number): Clip[] {
+  const clip = clips.find((c) => c.id === clipId);
+  if (!clip) return clips;
+  if (atTime <= clip.start || atTime >= clipEnd(clip)) return clips;
+
+  const splitOffset = atTime - clip.start;
+  const firstOut = clip.sourceIn + splitOffset;
+
+  const first: Clip = { ...clip, sourceOut: firstOut };
+  const second: Clip = {
+    ...clip,
+    id: `${clip.id}-split-${Math.random().toString(36).slice(2, 8)}`,
+    sourceIn: firstOut,
+    start: atTime,
+  };
+
+  return clips.flatMap((c) => (c.id === clipId ? [first, second] : [c]));
+}
+
+export function removeClip(clips: Clip[], clipId: string): Clip[] {
+  return clips.filter((c) => c.id !== clipId);
+}
+
+/** Ripple-delete: remove clip and shift later clips on the same track left to close the gap. */
+export function rippleDeleteClip(clips: Clip[], clipId: string): Clip[] {
+  const clip = clips.find((c) => c.id === clipId);
+  if (!clip) return clips;
+  const duration = clipDuration(clip);
+  return clips
+    .filter((c) => c.id !== clipId)
+    .map((c) =>
+      c.trackId === clip.trackId && c.start >= clipEnd(clip)
+        ? { ...c, start: c.start - duration }
+        : c
+    );
+}
+
+export function findClipAt(clips: Clip[], trackId: string, time: number): Clip | undefined {
+  return clips.find((c) => c.trackId === trackId && time >= c.start && time < clipEnd(c));
+}

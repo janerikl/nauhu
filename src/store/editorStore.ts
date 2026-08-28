@@ -1,0 +1,100 @@
+import { create } from "zustand";
+import {
+  type Clip,
+  type Track,
+  moveClip as moveClipMath,
+  trimClip as trimClipMath,
+  splitClip as splitClipMath,
+  rippleDeleteClip as rippleDeleteClipMath,
+  timelineDuration,
+} from "../lib/timeline-math";
+
+export interface MediaSource {
+  id: string;
+  name: string;
+  url: string;
+  duration: number;
+  kind: "video" | "audio";
+  thumbnail?: string;
+}
+
+const CLIP_COLORS = ["#6366f1", "#22c55e", "#f97316", "#ec4899", "#06b6d4", "#eab308"];
+let colorIdx = 0;
+const nextColor = () => CLIP_COLORS[colorIdx++ % CLIP_COLORS.length];
+
+interface EditorState {
+  sources: MediaSource[];
+  tracks: Track[];
+  clips: Clip[];
+  playhead: number;
+  isPlaying: boolean;
+  selectedClipId: string | null;
+  zoom: number; // pixels per second
+
+  addSource: (source: MediaSource) => void;
+  addClipToTimeline: (sourceId: string, trackId: string, atStart?: number) => void;
+  moveClip: (clipId: string, newStart: number) => void;
+  trimClip: (clipId: string, edge: "in" | "out", time: number) => void;
+  splitClipAtPlayhead: (clipId: string) => void;
+  removeClip: (clipId: string) => void;
+  selectClip: (clipId: string | null) => void;
+  setPlayhead: (time: number) => void;
+  setIsPlaying: (playing: boolean) => void;
+  setZoom: (zoom: number) => void;
+  duration: () => number;
+}
+
+export const useEditorStore = create<EditorState>((set, get) => ({
+  sources: [],
+  tracks: [
+    { id: "video-1", name: "Video", kind: "video" },
+    { id: "audio-1", name: "Audio", kind: "audio" },
+  ],
+  clips: [],
+  playhead: 0,
+  isPlaying: false,
+  selectedClipId: null,
+  zoom: 60,
+
+  addSource: (source) => set((s) => ({ sources: [...s.sources, source] })),
+
+  addClipToTimeline: (sourceId, trackId, atStart) => {
+    const source = get().sources.find((s) => s.id === sourceId);
+    if (!source) return;
+    const existing = get().clips.filter((c) => c.trackId === trackId);
+    const start =
+      atStart ?? existing.reduce((max, c) => Math.max(max, c.start + (c.sourceOut - c.sourceIn)), 0);
+    const clip: Clip = {
+      id: `clip-${Math.random().toString(36).slice(2, 9)}`,
+      trackId,
+      sourceId: source.id,
+      sourceName: source.name,
+      sourceIn: 0,
+      sourceOut: source.duration,
+      start,
+      color: nextColor(),
+    };
+    set((s) => ({ clips: [...s.clips, clip] }));
+  },
+
+  moveClip: (clipId, newStart) =>
+    set((s) => ({ clips: moveClipMath(s.clips, clipId, newStart) })),
+
+  trimClip: (clipId, edge, time) =>
+    set((s) => ({ clips: trimClipMath(s.clips, clipId, edge, time) })),
+
+  splitClipAtPlayhead: (clipId) =>
+    set((s) => ({ clips: splitClipMath(s.clips, clipId, s.playhead) })),
+
+  removeClip: (clipId) =>
+    set((s) => ({
+      clips: rippleDeleteClipMath(s.clips, clipId),
+      selectedClipId: s.selectedClipId === clipId ? null : s.selectedClipId,
+    })),
+
+  selectClip: (clipId) => set({ selectedClipId: clipId }),
+  setPlayhead: (time) => set({ playhead: Math.max(0, time) }),
+  setIsPlaying: (playing) => set({ isPlaying: playing }),
+  setZoom: (zoom) => set({ zoom: Math.min(300, Math.max(10, zoom)) }),
+  duration: () => timelineDuration(get().clips),
+}));
