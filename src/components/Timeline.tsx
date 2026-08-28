@@ -1,10 +1,17 @@
 import { useEffect, useRef, useState } from "react";
 import { useEditorStore } from "../store/editorStore";
-import { clipDuration, clipEnd } from "../lib/timeline-math";
+import {
+  clipDuration,
+  clipEnd,
+  collectSnapPoints,
+  snapMoveStart,
+  snapValue,
+} from "../lib/timeline-math";
 import { Scissors, Trash2, Plus, X } from "lucide-react";
 
 const TRACK_HEIGHT = 56;
 const RULER_HEIGHT = 24;
+const SNAP_PX = 8;
 
 export function Timeline() {
   const tracks = useEditorStore((s) => s.tracks);
@@ -32,6 +39,7 @@ export function Timeline() {
   } | null>(null);
   const [isScrubbing, setIsScrubbing] = useState(false);
   const [hoverTrackId, setHoverTrackId] = useState<string | null>(null);
+  const [snapGuide, setSnapGuide] = useState<number | null>(null);
 
   const timeToPx = (t: number) => t * zoom;
   const pxToTime = (px: number) => px / zoom;
@@ -84,6 +92,9 @@ export function Timeline() {
       const clip = clips.find((c) => c.id === drag.clipId);
       if (!clip) return;
 
+      const snapThreshold = pxToTime(SNAP_PX);
+      const snapPoints = collectSnapPoints(clips, drag.clipId, [0, playhead]);
+
       if (drag.mode === "move") {
         const originalTrack = tracks.find((t) => t.id === clip.trackId);
         const hovered = trackIdAtClientY(e.clientY);
@@ -93,11 +104,28 @@ export function Timeline() {
             ? hoveredTrack.id
             : clip.trackId;
         setHoverTrackId(targetTrackId);
-        moveClip(drag.clipId, clip.start + deltaT, targetTrackId);
+
+        const duration = clipDuration(clip);
+        const rawStart = clip.start + deltaT;
+        const snappedStart = snapMoveStart(rawStart, duration, snapPoints, snapThreshold);
+        setSnapGuide(
+          snappedStart !== rawStart
+            ? snapPoints.find(
+                (p) => Math.abs(p - snappedStart) < 1e-6 || Math.abs(p - (snappedStart + duration)) < 1e-6
+              ) ?? null
+            : null
+        );
+        moveClip(drag.clipId, snappedStart, targetTrackId);
       } else if (drag.mode === "trim-in") {
-        trimClip(drag.clipId, "in", clip.start + deltaT);
+        const rawTime = clip.start + deltaT;
+        const snapped = snapValue(rawTime, snapPoints, snapThreshold);
+        setSnapGuide(snapped !== rawTime ? snapped : null);
+        trimClip(drag.clipId, "in", snapped);
       } else {
-        trimClip(drag.clipId, "out", clip.start + clipDuration(clip) + deltaT);
+        const rawTime = clip.start + clipDuration(clip) + deltaT;
+        const snapped = snapValue(rawTime, snapPoints, snapThreshold);
+        setSnapGuide(snapped !== rawTime ? snapped : null);
+        trimClip(drag.clipId, "out", snapped);
       }
       setDrag((d) => (d ? { ...d, startX: e.clientX } : d));
     };
@@ -106,6 +134,7 @@ export function Timeline() {
       setDrag(null);
       setIsScrubbing(false);
       setHoverTrackId(null);
+      setSnapGuide(null);
     };
 
     window.addEventListener("mousemove", onMove);
@@ -115,7 +144,7 @@ export function Timeline() {
       window.removeEventListener("mouseup", onUp);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [drag, isScrubbing, clips, tracks, moveClip, trimClip, zoom]);
+  }, [drag, isScrubbing, clips, tracks, playhead, moveClip, trimClip, zoom]);
 
   // Show a grabbing/resizing cursor across the whole page while a drag is in
   // progress, since the mouse is often not directly over the clip anymore.
@@ -181,6 +210,13 @@ export function Timeline() {
           >
             <div className="playhead-handle" onMouseDown={startScrub} />
           </div>
+
+          {snapGuide !== null && (
+            <div
+              className="snap-guide"
+              style={{ left: timeToPx(snapGuide), height: tracks.length * TRACK_HEIGHT + RULER_HEIGHT }}
+            />
+          )}
 
           {tracks.map((track) => (
             <div

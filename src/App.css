@@ -222,6 +222,16 @@ body {
   color: var(--text-dim);
 }
 
+.snap-guide {
+  position: absolute;
+  top: 0;
+  width: 2px;
+  background: #22d3ee;
+  box-shadow: 0 0 6px #22d3ee;
+  z-index: 5;
+  pointer-events: none;
+}
+
 .playhead {
   position: absolute;
   top: 0;

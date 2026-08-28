@@ -143,3 +143,59 @@ export function findActiveClip(
   }
   return undefined;
 }
+
+/** Collects candidate snap times: every other clip's start/end, plus any extra points (e.g. playhead, 0). */
+export function collectSnapPoints(
+  clips: Clip[],
+  excludeClipId: string,
+  extra: number[] = []
+): number[] {
+  const points = new Set<number>(extra);
+  for (const c of clips) {
+    if (c.id === excludeClipId) continue;
+    points.add(c.start);
+    points.add(clipEnd(c));
+  }
+  return Array.from(points);
+}
+
+/** Snaps a single time value to the nearest snap point within `threshold`, otherwise returns it unchanged. */
+export function snapValue(value: number, snapPoints: number[], threshold: number): number {
+  let best = value;
+  let bestDist = threshold;
+  for (const p of snapPoints) {
+    const dist = Math.abs(value - p);
+    if (dist <= bestDist) {
+      bestDist = dist;
+      best = p;
+    }
+  }
+  return best;
+}
+
+/**
+ * Snaps a clip's proposed start time so that either its start OR its end
+ * edge lands on a snap point, whichever is closer, within `threshold`.
+ */
+export function snapMoveStart(
+  rawStart: number,
+  duration: number,
+  snapPoints: number[],
+  threshold: number
+): number {
+  let bestStart = rawStart;
+  let bestDist = threshold;
+  for (const p of snapPoints) {
+    const startDist = Math.abs(rawStart - p);
+    if (startDist <= bestDist) {
+      bestDist = startDist;
+      bestStart = p;
+    }
+    const endDist = Math.abs(rawStart + duration - p);
+    if (endDist <= bestDist) {
+      bestDist = endDist;
+      bestStart = p - duration;
+    }
+  }
+  return bestStart;
+}

@@ -9,6 +9,9 @@ import {
   rippleDeleteClip,
   timelineDuration,
   findActiveClip,
+  collectSnapPoints,
+  snapValue,
+  snapMoveStart,
 } from "./timeline-math";
 
 const makeClip = (overrides: Partial<Clip> = {}): Clip => ({
@@ -169,5 +172,44 @@ describe("findActiveClip", () => {
   it("returns undefined when no track has a clip at the given time", () => {
     const clips = [makeClip({ id: "a", trackId: "video-1", start: 10, sourceOut: 15 })];
     expect(findActiveClip(clips, tracks, "video", 2)).toBeUndefined();
+  });
+});
+
+describe("collectSnapPoints", () => {
+  it("collects start/end of every other clip plus extra points, excluding the given clip", () => {
+    const clips = [
+      makeClip({ id: "dragged", start: 0, sourceOut: 5 }),
+      makeClip({ id: "other", start: 10, sourceOut: 6 }),
+    ];
+    const points = collectSnapPoints(clips, "dragged", [0, 3]).sort((a, b) => a - b);
+    expect(points).toEqual([0, 3, 10, 16]);
+  });
+});
+
+describe("snapValue", () => {
+  it("snaps to the nearest point within the threshold", () => {
+    expect(snapValue(10.1, [10, 20], 0.5)).toBe(10);
+  });
+
+  it("leaves the value unchanged when nothing is within the threshold", () => {
+    expect(snapValue(15, [10, 20], 0.5)).toBe(15);
+  });
+});
+
+describe("snapMoveStart", () => {
+  it("snaps the clip's start edge to a nearby point", () => {
+    const result = snapMoveStart(10.1, 5, [10, 30], 0.5);
+    expect(result).toBe(10);
+  });
+
+  it("snaps the clip's end edge to a nearby point, adjusting start accordingly", () => {
+    // duration 5, raw start 24.9 -> raw end 29.9, close to snap point 30
+    const result = snapMoveStart(24.9, 5, [10, 30], 0.5);
+    expect(result).toBe(25);
+  });
+
+  it("leaves start unchanged when nothing is within the threshold", () => {
+    const result = snapMoveStart(15, 5, [10, 30], 0.5);
+    expect(result).toBe(15);
   });
 });
