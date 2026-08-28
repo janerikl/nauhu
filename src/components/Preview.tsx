@@ -18,6 +18,7 @@ export function Preview() {
   const videoRef = useRef<HTMLVideoElement>(null);
   const rafRef = useRef<number>(0);
   const activeClipIdRef = useRef<string | null>(null);
+  const loadedSourceUrlRef = useRef<string | null>(null);
   const activeClipRef = useRef<Clip | undefined>(undefined);
 
   const activeClip = findActiveClip(clips, tracks, "video", playhead);
@@ -25,12 +26,21 @@ export function Preview() {
   activeClipRef.current = activeClip;
 
   // Switch the underlying <video> element's source when the active clip changes.
+  // Two clips split from the same original clip share a source/url - only
+  // reassign .src when the underlying media actually changes. Some browsers
+  // treat re-assigning .src to its current value as a fresh load, which
+  // resets/stalls playback right at the clip boundary instead of continuing
+  // seamlessly through the same file.
   useEffect(() => {
     const video = videoRef.current;
     if (!video || !activeClip || !activeSource) return;
     if (activeClipIdRef.current === activeClip.id) return;
     activeClipIdRef.current = activeClip.id;
-    video.src = activeSource.url;
+
+    if (loadedSourceUrlRef.current !== activeSource.url) {
+      loadedSourceUrlRef.current = activeSource.url;
+      video.src = activeSource.url;
+    }
     video.currentTime = activeClip.sourceIn + (playhead - activeClip.start);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeClip?.id, activeSource?.url]);
