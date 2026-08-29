@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type WheelEvent } from "react";
 import { useEditorStore } from "../store/editorStore";
 import {
   clipDuration,
@@ -11,7 +11,7 @@ import {
   type Clip,
   type TransitionType,
 } from "../lib/timeline-math";
-import { Scissors, Trash2, Plus, X } from "lucide-react";
+import { Scissors, Trash2, Plus, X, ZoomIn, ZoomOut } from "lucide-react";
 
 const TRACK_HEIGHT = 56;
 const RULER_HEIGHT = 24;
@@ -49,6 +49,7 @@ export function Timeline() {
   const removeClip = useEditorStore((s) => s.removeClip);
   const selectClip = useEditorStore((s) => s.selectClip);
   const setPlayhead = useEditorStore((s) => s.setPlayhead);
+  const setZoom = useEditorStore((s) => s.setZoom);
 
   const containerRef = useRef<HTMLDivElement>(null);
   const [drag, setDrag] = useState<{
@@ -327,6 +328,12 @@ export function Timeline() {
     addClipToTimeline(sourceId, trackId, Math.max(0, pxToTime(x)));
   };
 
+  const onWheelZoom = (e: WheelEvent<HTMLDivElement>) => {
+    if (!e.ctrlKey && !e.metaKey) return;
+    e.preventDefault();
+    setZoom(zoom * (e.deltaY < 0 ? 1.1 : 1 / 1.1));
+  };
+
   return (
     <div className="timeline">
       <div className="timeline-toolbar">
@@ -356,10 +363,25 @@ export function Timeline() {
         <button className="btn-icon" onClick={() => addTrack("audio")} title="Add audio track">
           <Plus size={14} /> Audio
         </button>
+        <span className="timeline-divider" />
+        <button
+          className="btn-icon"
+          onClick={() => setZoom(zoom / 1.25)}
+          title="Zoom out timeline"
+        >
+          <ZoomOut size={14} />
+        </button>
+        <button
+          className="btn-icon"
+          onClick={() => setZoom(zoom * 1.25)}
+          title="Zoom in timeline"
+        >
+          <ZoomIn size={14} />
+        </button>
         <span className="timeline-time">{playhead.toFixed(2)}s</span>
       </div>
 
-      <div className="timeline-scroll" ref={containerRef}>
+      <div className="timeline-scroll" ref={containerRef} onWheel={onWheelZoom}>
         <div className="timeline-inner" style={{ width: totalWidth }}>
           <div className="timeline-ruler" style={{ height: RULER_HEIGHT }} onMouseDown={startScrub}>
             {Array.from({ length: Math.ceil(totalWidth / zoom) }).map((_, i) => (
