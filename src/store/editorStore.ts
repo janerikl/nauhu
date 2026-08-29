@@ -56,6 +56,7 @@ interface EditorState {
   isPlaying: boolean;
   selectedClipId: string | null;
   selectedTransitionId: string | null;
+  copiedClip: Clip | null;
   zoom: number; // pixels per second
   /** User-placed transitions - independent timeline objects, not derived from clip geometry. */
   transitions: TimelineTransition[];
@@ -75,6 +76,8 @@ interface EditorState {
   trimClip: (clipId: string, edge: "in" | "out", time: number) => void;
   splitClipAtPlayhead: (clipId: string) => void;
   removeClip: (clipId: string) => void;
+  copySelectedClip: () => void;
+  pasteClip: () => void;
   addTransition: (input: {
     trackId: string;
     prevClipId: string;
@@ -113,6 +116,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   isPlaying: false,
   selectedClipId: null,
   selectedTransitionId: null,
+  copiedClip: null,
   zoom: 60,
   transitions: [],
 
@@ -243,6 +247,24 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       transitions: s.transitions.filter(
         (t) => t.prevClipId !== clipId && t.nextClipId !== clipId
       ),
+    }));
+  },
+
+  copySelectedClip: () =>
+    set((s) => {
+      const clip = s.clips.find((c) => c.id === s.selectedClipId);
+      return clip ? { copiedClip: clip } : s;
+    }),
+
+  pasteClip: () => {
+    const { copiedClip, playhead } = get();
+    if (!copiedClip) return;
+    const id = `clip-${Math.random().toString(36).slice(2, 9)}`;
+    const newClip: Clip = { ...copiedClip, id, start: playhead };
+    get().pushHistory();
+    set((s) => ({
+      clips: moveClipMath([...s.clips, newClip], id, playhead, copiedClip.trackId),
+      selectedClipId: id,
     }));
   },
 

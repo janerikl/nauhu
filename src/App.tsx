@@ -41,6 +41,11 @@ function App() {
       } else if (e.key === "Delete" || e.key === "Backspace") {
         if (selectedClipId) removeClip(selectedClipId);
         else if (selectedTransitionId) removeTransition(selectedTransitionId);
+      } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "c") {
+        if (selectedClipId) useEditorStore.getState().copySelectedClip();
+      } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "v") {
+        e.preventDefault();
+        useEditorStore.getState().pasteClip();
       }
     };
     window.addEventListener("keydown", onKeyDown);
