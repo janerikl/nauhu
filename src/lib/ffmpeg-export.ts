@@ -88,6 +88,31 @@ function buildDrawtextFilter(clip: Clip, outStart: number, outEnd: number): stri
   );
 }
 
+/** Encodes one clip's trimmed/scaled range to its own standalone mp4 segment, at the shared export resolution/fps/codec. */
+async function encodeClipSegment(
+  ff: FFmpeg,
+  clip: Clip,
+  source: MediaSource,
+  inputName: string,
+  outputName: string
+): Promise<void> {
+  const duration = clip.sourceOut - clip.sourceIn;
+  const isImage = source.kind === "image";
+  const args = isImage
+    ? ["-loop", "1", "-t", String(duration), "-i", inputName]
+    : ["-ss", String(clip.sourceIn), "-t", String(duration), "-i", inputName];
+
+  await ff.exec([
+    ...args,
+    "-vf", SCALE_FILTER,
+    "-r", String(EXPORT_FPS),
+    "-c:v", "libx264",
+    "-pix_fmt", "yuv420p",
+    "-an",
+    outputName,
+  ]);
+}
+
 /**
  * Exports the video track by trimming each clip to its in/out range and
  * concatenating them in timeline order, producing a single mp4. Every clip
@@ -145,27 +170,7 @@ export async function exportTimeline(
       writtenInputs.add(inputName);
     }
 
-    const args = isImage
-      ? [
-          "-loop", "1",
-          "-t", String(duration),
-          "-i", inputName,
-        ]
-      : [
-          "-ss", String(clip.sourceIn),
-          "-t", String(duration),
-          "-i", inputName,
-        ];
-
-    await ff.exec([
-      ...args,
-      "-vf", SCALE_FILTER,
-      "-r", String(EXPORT_FPS),
-      "-c:v", "libx264",
-      "-pix_fmt", "yuv420p",
-      "-an",
-      outputName,
-    ]);
+    await encodeClipSegment(ff, clip, source, inputName, outputName);
     segmentNames.push(outputName);
     segmentSpans.push({ clip, outStart: durationDone, outEnd: durationDone + duration });
     await ff.deleteFile(inputName);
@@ -179,10 +184,73 @@ export async function exportTimeline(
   await ff.writeFile("list.txt", listContent);
   await ff.exec(["-f", "concat", "-safe", "0", "-i", "list.txt", "-c", "copy", "output.mp4"]);
 
+  // Composite any other video tracks on top of the primary track: each of
+  // their clips is encoded standalone, then layered in with ffmpeg's
+  // `overlay` filter, shifted (-itsoffset) and windowed (`enable=between`) to
+  // land at the same point on the primary track's gapless output timeline
+  // (via the same start/end time mapping the text burn-in below uses).
+  const overlayTrackIds = tracks.filter((t) => t.kind === "video" && t.id !== trackId).map((t) => t.id);
+  const overlayClips = clips
+    .filter((c) => overlayTrackIds.includes(c.trackId))
+    .sort((a, b) => a.start - b.start)
+    .filter((c) => {
+      const source = sources.find((s) => s.id === c.sourceId);
+      return source && c.sourceOut - c.sourceIn > 0;
+    });
+
+  let compositedOutputName = "output.mp4";
+  if (overlayClips.length > 0) {
+    const overlayInputs: string[] = [];
+    const overlayWindows: { outStart: number; outEnd: number }[] = [];
+    for (let i = 0; i < overlayClips.length; i++) {
+      const clip = overlayClips[i];
+      const source = sources.find((s) => s.id === clip.sourceId)!;
+      const isImage = source.kind === "image";
+      const inputName = `ov-in-${i}.${isImage ? "jpg" : "mp4"}`;
+      const outputName = `ov-seg-${i}.mp4`;
+      await ff.writeFile(inputName, await fetchFile(source.url));
+      await encodeClipSegment(ff, clip, source, inputName, outputName);
+      await ff.deleteFile(inputName);
+      overlayInputs.push(outputName);
+      overlayWindows.push({
+        outStart: mapTimeToExport(clip.start, segmentSpans),
+        outEnd: mapTimeToExport(clipEnd(clip), segmentSpans),
+      });
+    }
+
+    const inputArgs: string[] = ["-i", "output.mp4"];
+    overlayInputs.forEach((name, i) => {
+      inputArgs.push("-itsoffset", String(overlayWindows[i].outStart), "-i", name);
+    });
+
+    let lastLabel = "0:v";
+    const filterParts: string[] = [];
+    overlayInputs.forEach((_, i) => {
+      const { outStart, outEnd } = overlayWindows[i];
+      const nextLabel = `v${i + 1}`;
+      filterParts.push(
+        `[${lastLabel}][${i + 1}:v]overlay=x=0:y=0:enable='between(t,${outStart},${outEnd})'[${nextLabel}]`
+      );
+      lastLabel = nextLabel;
+    });
+
+    await ff.exec([
+      ...inputArgs,
+      "-filter_complex", filterParts.join(";"),
+      "-map", `[${lastLabel}]`,
+      "-c:v", "libx264",
+      "-pix_fmt", "yuv420p",
+      "-an",
+      "overlayoutput.mp4",
+    ]);
+    for (const name of overlayInputs) await ff.deleteFile(name);
+    compositedOutputName = "overlayoutput.mp4";
+  }
+
   const textTrackIds = new Set(tracks.filter((t) => t.kind === "text").map((t) => t.id));
   const textClips = clips.filter((c) => c.text && textTrackIds.has(c.trackId));
 
-  let finalOutputName = "output.mp4";
+  let finalOutputName = compositedOutputName;
   if (textClips.length > 0) {
     await ff.writeFile("font.ttf", await fetchFile(FONT_FILE_URL));
     const filters = textClips.map((clip) => {
@@ -191,7 +259,7 @@ export async function exportTimeline(
       return buildDrawtextFilter(clip, outStart, outEnd);
     });
     await ff.exec([
-      "-i", "output.mp4",
+      "-i", compositedOutputName,
       "-vf", filters.join(","),
       "-c:v", "libx264",
       "-pix_fmt", "yuv420p",
@@ -208,7 +276,10 @@ export async function exportTimeline(
   for (const n of segmentNames) await ff.deleteFile(n);
   await ff.deleteFile("list.txt");
   await ff.deleteFile("output.mp4");
-  if (finalOutputName !== "output.mp4") await ff.deleteFile(finalOutputName);
+  if (compositedOutputName !== "output.mp4") await ff.deleteFile(compositedOutputName);
+  if (finalOutputName !== "output.mp4" && finalOutputName !== compositedOutputName) {
+    await ff.deleteFile(finalOutputName);
+  }
 
   return new Blob([data as Uint8Array<ArrayBuffer>], { type: "video/mp4" });
 }

@@ -31,9 +31,10 @@ export function ExportPanel() {
     };
   }, []);
 
-  // Export currently supports a single video track (no cross-track overlay
-  // compositing yet); pick the first video track, in track order, that
-  // actually has clips rather than hardcoding the original default track.
+  // The primary track defines the export's base timeline/duration; any other
+  // video tracks are composited on top of it (see exportTimeline). Pick the
+  // first video track, in track order, that actually has clips rather than
+  // hardcoding the original default track.
   const exportTrackId = tracks.find(
     (t) => t.kind === "video" && clips.some((c) => c.trackId === t.id)
   )?.id;
