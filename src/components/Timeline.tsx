@@ -136,6 +136,7 @@ export function Timeline() {
     const prevClip = clips.find((c) => c.id === prevClipId);
     if (!prevClip) return;
     const start = clipEnd(prevClip) - DEFAULT_TRANSITION_OVERLAP;
+    useEditorStore.getState().pushHistory();
     moveClip(nextClipId, start);
     addTransition({ trackId, prevClipId, nextClipId, start, duration: DEFAULT_TRANSITION_OVERLAP, type });
   };
@@ -146,6 +147,7 @@ export function Timeline() {
     setDragOverKey(null);
     const type = e.dataTransfer.getData(TRANSITION_DND_TYPE) as TransitionType;
     if (!type) return;
+    useEditorStore.getState().pushHistory();
     updateTransition(transitionId, { type });
   };
 
@@ -179,6 +181,7 @@ export function Timeline() {
     selectClip(clipId);
     const clip = clips.find((c) => c.id === clipId);
     if (!clip) return;
+    useEditorStore.getState().pushHistory();
     setDrag({
       clipId,
       mode,
@@ -456,6 +459,7 @@ export function Timeline() {
                       onMouseDown={(e) => {
                         e.stopPropagation();
                         selectTransition(t.id);
+                        useEditorStore.getState().pushHistory();
                         setTransitionDrag({
                           id: t.id,
                           mode: "move",
@@ -479,6 +483,7 @@ export function Timeline() {
                         onMouseDown={(e) => {
                           e.stopPropagation();
                           selectTransition(t.id);
+                          useEditorStore.getState().pushHistory();
                           setTransitionDrag({
                             id: t.id,
                             mode: "resize-left",
@@ -499,6 +504,7 @@ export function Timeline() {
                         onMouseDown={(e) => {
                           e.stopPropagation();
                           selectTransition(t.id);
+                          useEditorStore.getState().pushHistory();
                           setTransitionDrag({
                             id: t.id,
                             mode: "resize-right",
