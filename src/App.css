@@ -1,12 +1,16 @@
 :root {
-  --bg: #16161a;
-  --bg-panel: #1e1e24;
-  --bg-elevated: #26262e;
-  --border: #33333d;
-  --text: #e8e8ec;
-  --text-dim: #8a8a96;
-  --accent: #6366f1;
-  --accent-hover: #7476f5;
+  --bg: #18140f;
+  --bg-panel: #211b14;
+  --bg-elevated: #2a2119;
+  --border: #382f24;
+  --text: #f4ede2;
+  --text-dim: #a99c8c;
+  --accent: #e0713a;
+  --accent-hover: #f3925f;
+  --accent-ink: #241207;
+  --serif: "Fraunces", "Iowan Old Style", serif;
+  --sans: "Inter", -apple-system, "Segoe UI", Roboto, sans-serif;
+  --mono: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
 }
 
 * { box-sizing: border-box; }
@@ -16,7 +20,7 @@ html, body, #root { height: 100%; margin: 0; }
 body {
   background: var(--bg);
   color: var(--text);
-  font-family: -apple-system, "Segoe UI", Roboto, sans-serif;
+  font-family: var(--sans);
   font-size: 13px;
 }
 
@@ -36,9 +40,17 @@ body {
 }
 
 .app-header h1 {
-  font-size: 15px;
+  font-family: var(--serif);
+  font-size: 17px;
   font-weight: 600;
+  letter-spacing: -0.01em;
   margin: 0;
+}
+
+.app-brand {
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
 .app-header-left {
@@ -164,7 +176,8 @@ body {
 }
 
 .save-status {
-  font-size: 12px;
+  font-family: var(--mono);
+  font-size: 11px;
   color: var(--text-dim);
 }
 
@@ -233,7 +246,7 @@ body {
   white-space: nowrap;
 }
 
-.media-item-duration { color: var(--text-dim); font-size: 11px; }
+.media-item-duration { font-family: var(--mono); color: var(--text-dim); font-size: 11px; }
 
 /* Transitions panel */
 .transitions-panel {
@@ -332,9 +345,9 @@ body {
   align-items: center;
   gap: 6px;
   background: var(--accent);
-  color: white;
+  color: var(--accent-ink);
   border: none;
-  border-radius: 6px;
+  border-radius: 8px;
   padding: 8px 14px;
   font-weight: 600;
   cursor: pointer;
@@ -368,7 +381,7 @@ body {
   border-bottom: 1px solid var(--border);
 }
 
-.timeline-time { color: var(--text-dim); margin-left: auto; font-variant-numeric: tabular-nums; }
+.timeline-time { font-family: var(--mono); color: var(--text-dim); margin-left: auto; font-variant-numeric: tabular-nums; }
 
 .timeline-divider {
   width: 1px;
