@@ -43,6 +43,24 @@ export interface Overlap {
   duration: number;
 }
 
+/**
+ * A user-placed transition: an independent timeline object with its own
+ * position/duration, not derived from the two clips' current geometry. It
+ * stays put (and renders "inactive") if the clips are moved apart, and only
+ * actually blends video during playback while its two clips genuinely
+ * overlap in time - see `findActivePair`/`findCrossTrackActivePair`.
+ */
+export interface TimelineTransition {
+  id: string;
+  trackId: string;
+  prevClipId: string;
+  nextClipId: string;
+  /** timeline seconds where the block starts */
+  start: number;
+  duration: number;
+  type: TransitionType;
+}
+
 export const clipDuration = (clip: Clip) => clip.sourceOut - clip.sourceIn;
 export const clipEnd = (clip: Clip) => clip.start + clipDuration(clip);
 
@@ -129,15 +147,13 @@ export const transitionKey = (prevClipId: string, nextClipId: string) => `${prev
 export function getDeclaredCrossTrackOverlaps(
   clips: Clip[],
   tracks: Track[],
-  transitionTypes: Record<string, TransitionType>
+  transitions: TimelineTransition[]
 ): Overlap[] {
   const videoTrackIds = new Set(tracks.filter((t) => t.kind === "video").map((t) => t.id));
   const overlaps: Overlap[] = [];
-  for (const key of Object.keys(transitionTypes)) {
-    const sep = key.indexOf("->");
-    if (sep < 0) continue;
-    const prevClip = clips.find((c) => c.id === key.slice(0, sep));
-    const nextClip = clips.find((c) => c.id === key.slice(sep + 2));
+  for (const transition of transitions) {
+    const prevClip = clips.find((c) => c.id === transition.prevClipId);
+    const nextClip = clips.find((c) => c.id === transition.nextClipId);
     if (!prevClip || !nextClip) continue;
     if (prevClip.trackId === nextClip.trackId) continue; // same-track case is handled by getOverlaps
     if (!videoTrackIds.has(prevClip.trackId) || !videoTrackIds.has(nextClip.trackId)) continue;
@@ -154,13 +170,25 @@ export function getDeclaredCrossTrackOverlaps(
 export function findCrossTrackActivePair(
   clips: Clip[],
   tracks: Track[],
-  transitionTypes: Record<string, TransitionType>,
+  transitions: TimelineTransition[],
   time: number
 ): { primary: Clip; secondary: Clip } | undefined {
-  const hit = getDeclaredCrossTrackOverlaps(clips, tracks, transitionTypes).find(
+  const hit = getDeclaredCrossTrackOverlaps(clips, tracks, transitions).find(
     (o) => time >= o.start && time < o.end
   );
   return hit ? { primary: hit.prevClip, secondary: hit.nextClip } : undefined;
+}
+
+/** Looks up the declared type for a clip-pair transition, defaulting to crossfade if undeclared. */
+export function getTransitionType(
+  transitions: TimelineTransition[],
+  prevClipId: string,
+  nextClipId: string
+): TransitionType {
+  return (
+    transitions.find((t) => t.prevClipId === prevClipId && t.nextClipId === nextClipId)?.type ??
+    "crossfade"
+  );
 }
 
 /** Trim the left (in) or right (out) edge of a clip by dragging to `time` (timeline seconds). */

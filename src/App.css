@@ -536,7 +536,10 @@ body {
   position: absolute;
   top: 4px;
   bottom: 4px;
-  z-index: 3;
+  /* Above .timeline-clip.dragging/.trimming (z-index: 4) so the block stays
+     visible and grabbable while its neighboring clip is mid-trim. */
+  z-index: 5;
+  cursor: grab;
   border-radius: 6px;
   background: repeating-linear-gradient(
       45deg,
@@ -555,11 +558,23 @@ body {
   justify-content: center;
   gap: 2px;
   overflow: hidden;
-  pointer-events: none;
+  /* The block itself must be a real hit-test target now (click to select,
+     drag to move/re-type) - not just its handle children. */
+  pointer-events: auto;
 }
 
 .timeline-transition.drag-over {
   outline: 2px solid white;
+}
+
+.timeline-transition.selected {
+  outline: 2px solid white;
+  outline-offset: -2px;
+}
+
+.timeline-transition.inactive {
+  opacity: 0.35;
+  filter: grayscale(0.6);
 }
 
 .timeline-transition.cross-track {
@@ -624,48 +639,29 @@ body {
   pointer-events: none;
 }
 
-.timeline-transition-select {
-  pointer-events: auto;
-  font-size: 9px;
-  max-width: calc(100% - 6px);
-  background: rgba(0, 0, 0, 0.55);
-  color: white;
-  border: none;
-  border-radius: 3px;
-  padding: 1px 2px;
-  cursor: pointer;
-}
-
-.add-transition-btn {
+.add-transition-zone {
   position: absolute;
-  top: 50%;
-  width: 16px;
-  height: 16px;
-  transform: translate(-50%, -50%);
-  z-index: 4;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border: none;
-  border-radius: 50%;
-  background: rgba(0, 0, 0, 0.6);
-  color: white;
-  cursor: pointer;
-  opacity: 0.45;
-  transition: opacity 0.1s ease, transform 0.1s ease;
+  top: 4px;
+  bottom: 4px;
+  z-index: 3;
+  border-radius: 6px;
+  border: 1.5px dashed rgba(255, 255, 255, 0.35);
+  background: rgba(255, 255, 255, 0.06);
+  opacity: 0.5;
+  transition: opacity 0.1s ease, background 0.1s ease, border-color 0.1s ease;
 }
 
-.timeline-track:hover .add-transition-btn,
-.add-transition-btn.drag-over {
+.timeline-track:hover .add-transition-zone,
+.add-transition-zone.drag-over {
   opacity: 1;
 }
 
-.add-transition-btn.cross-track {
-  background: rgba(8, 145, 178, 0.85);
+.add-transition-zone.cross-track {
+  border-color: rgba(8, 145, 178, 0.85);
 }
 
-.add-transition-btn:hover,
-.add-transition-btn.drag-over {
-  background: rgba(99, 102, 241, 0.9);
-  transform: translate(-50%, -50%) scale(1.15);
+.add-transition-zone.drag-over {
+  background: rgba(99, 102, 241, 0.25);
+  border-color: rgba(99, 102, 241, 0.9);
+  border-style: solid;
 }

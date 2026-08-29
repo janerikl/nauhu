@@ -4,11 +4,8 @@ import {
   clipDuration,
   clipEnd,
   collectSnapPoints,
-  getDeclaredCrossTrackOverlaps,
-  getOverlaps,
   snapMoveStart,
   snapValue,
-  transitionKey,
   TRANSITION_DND_TYPE,
   TRANSITION_LABELS,
   type Clip,
@@ -19,7 +16,10 @@ import { Scissors, Trash2, Plus, X } from "lucide-react";
 const TRACK_HEIGHT = 56;
 const RULER_HEIGHT = 24;
 const SNAP_PX = 8;
-const DEFAULT_TRANSITION_OVERLAP = 0.5;
+const DEFAULT_TRANSITION_OVERLAP = 1.0;
+const MIN_TRANSITION_DURATION = 0.1;
+/** How far (px) a transition block must be dragged vertically off its track before releasing deletes it. */
+const DELETE_DRAG_THRESHOLD_PX = TRACK_HEIGHT;
 // Clips rarely end up touching at *exact* floating-point equality after a
 // manual drag (only a fresh split guarantees that) - treat anything within
 // this many timeline pixels as "adjacent" so the add-transition affordance
@@ -32,9 +32,13 @@ export function Timeline() {
   const zoom = useEditorStore((s) => s.zoom);
   const playhead = useEditorStore((s) => s.playhead);
   const selectedClipId = useEditorStore((s) => s.selectedClipId);
+  const selectedTransitionId = useEditorStore((s) => s.selectedTransitionId);
   const duration = useEditorStore((s) => s.duration());
-  const transitionTypes = useEditorStore((s) => s.transitionTypes);
-  const setTransitionType = useEditorStore((s) => s.setTransitionType);
+  const transitions = useEditorStore((s) => s.transitions);
+  const addTransition = useEditorStore((s) => s.addTransition);
+  const updateTransition = useEditorStore((s) => s.updateTransition);
+  const removeTransition = useEditorStore((s) => s.removeTransition);
+  const selectTransition = useEditorStore((s) => s.selectTransition);
 
   const addTrack = useEditorStore((s) => s.addTrack);
   const removeTrack = useEditorStore((s) => s.removeTrack);
@@ -50,7 +54,17 @@ export function Timeline() {
   const [drag, setDrag] = useState<{
     clipId: string;
     mode: "move" | "trim-in" | "trim-out";
-    startX: number;
+    originX: number;
+    originStart: number;
+    originDuration: number;
+  } | null>(null);
+  const [transitionDrag, setTransitionDrag] = useState<{
+    id: string;
+    mode: "move" | "resize-left" | "resize-right";
+    originX: number;
+    originY: number;
+    originStart: number;
+    originDuration: number;
   } | null>(null);
   const [isScrubbing, setIsScrubbing] = useState(false);
   const [hoverTrackId, setHoverTrackId] = useState<string | null>(null);
@@ -61,7 +75,6 @@ export function Timeline() {
   const pxToTime = (px: number) => px / zoom;
 
   const totalWidth = Math.max(800, (duration + 10) * zoom);
-  const overlaps = getOverlaps(clips, tracks);
 
   // Pairs of time-adjacent (touching or nearly-touching, not yet overlapping)
   // clips on the same track - each is a candidate boundary where a
@@ -105,39 +118,35 @@ export function Timeline() {
     }
   }
 
-  const crossTrackOverlaps = getDeclaredCrossTrackOverlaps(clips, tracks, transitionTypes);
+  // Only offer to create a transition at a boundary that doesn't already
+  // have one - once decoupled, a pair of clips can be adjacent without any
+  // relation to a transition that was placed elsewhere on the timeline.
+  const hasTransitionFor = (prevClipId: string, nextClipId: string) =>
+    transitions.some((t) => t.prevClipId === prevClipId && t.nextClipId === nextClipId);
 
-  // Closes the gap (if any) between prevClipId and nextClipId down to a
-  // consistent DEFAULT_TRANSITION_OVERLAP-sized overlap, regardless of how
-  // large the pre-existing gap was.
-  const createOverlap = (prevClipId: string, nextClipId: string) => {
+  // Dropping a transition on a clip boundary both nudges the two clips into
+  // a real DEFAULT_TRANSITION_OVERLAP-sized overlap (so the effect is born
+  // "active") and creates an independent transition record at that spot.
+  const onBoundaryDrop = (e: React.DragEvent, prevClipId: string, nextClipId: string, trackId: string) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setDragOverKey(null);
+    const type = e.dataTransfer.getData(TRANSITION_DND_TYPE) as TransitionType;
+    if (!type) return;
     const prevClip = clips.find((c) => c.id === prevClipId);
     if (!prevClip) return;
-    moveClip(nextClipId, clipEnd(prevClip) - DEFAULT_TRANSITION_OVERLAP);
+    const start = clipEnd(prevClip) - DEFAULT_TRANSITION_OVERLAP;
+    moveClip(nextClipId, start);
+    addTransition({ trackId, prevClipId, nextClipId, start, duration: DEFAULT_TRANSITION_OVERLAP, type });
   };
 
-  const addTransition = (prevClipId: string, nextClipId: string) => {
-    createOverlap(prevClipId, nextClipId);
-    setTransitionType(prevClipId, nextClipId, "crossfade");
-  };
-
-  const onBoundaryDrop = (e: React.DragEvent, prevClipId: string, nextClipId: string) => {
+  const onTransitionTypeDrop = (e: React.DragEvent, transitionId: string) => {
     e.preventDefault();
     e.stopPropagation();
     setDragOverKey(null);
     const type = e.dataTransfer.getData(TRANSITION_DND_TYPE) as TransitionType;
     if (!type) return;
-    createOverlap(prevClipId, nextClipId);
-    setTransitionType(prevClipId, nextClipId, type);
-  };
-
-  const onOverlapDrop = (e: React.DragEvent, prevClipId: string, nextClipId: string) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setDragOverKey(null);
-    const type = e.dataTransfer.getData(TRANSITION_DND_TYPE) as TransitionType;
-    if (!type) return;
-    setTransitionType(prevClipId, nextClipId, type);
+    updateTransition(transitionId, { type });
   };
 
   const seekFromClientX = (clientX: number) => {
@@ -168,7 +177,15 @@ export function Timeline() {
     e.preventDefault(); // avoid native text-selection drag when starting on the clip label
     e.stopPropagation();
     selectClip(clipId);
-    setDrag({ clipId, mode, startX: e.clientX });
+    const clip = clips.find((c) => c.id === clipId);
+    if (!clip) return;
+    setDrag({
+      clipId,
+      mode,
+      originX: e.clientX,
+      originStart: clip.start,
+      originDuration: clipDuration(clip),
+    });
   };
 
   // Attach drag/scrub listeners to the window (not just the timeline element)
@@ -183,7 +200,12 @@ export function Timeline() {
         return;
       }
       if (!drag) return;
-      const deltaPx = e.clientX - drag.startX;
+      // Deltas are measured from the fixed mousedown origin (not the last
+      // moved-to position) so that snapping to a point (e.g. the playhead)
+      // never "traps" the drag - a snap only affects where the clip lands,
+      // it never resets what counts as the start of the gesture, so
+      // continuing to move the mouse further always keeps making progress.
+      const deltaPx = e.clientX - drag.originX;
       const deltaT = pxToTime(deltaPx);
       const clip = clips.find((c) => c.id === drag.clipId);
       if (!clip) return;
@@ -201,8 +223,8 @@ export function Timeline() {
             : clip.trackId;
         setHoverTrackId(targetTrackId);
 
-        const duration = clipDuration(clip);
-        const rawStart = clip.start + deltaT;
+        const duration = drag.originDuration;
+        const rawStart = drag.originStart + deltaT;
         const snappedStart = snapMoveStart(rawStart, duration, snapPoints, snapThreshold);
         setSnapGuide(
           snappedStart !== rawStart
@@ -213,17 +235,16 @@ export function Timeline() {
         );
         moveClip(drag.clipId, snappedStart, targetTrackId);
       } else if (drag.mode === "trim-in") {
-        const rawTime = clip.start + deltaT;
+        const rawTime = drag.originStart + deltaT;
         const snapped = snapValue(rawTime, snapPoints, snapThreshold);
         setSnapGuide(snapped !== rawTime ? snapped : null);
         trimClip(drag.clipId, "in", snapped);
       } else {
-        const rawTime = clip.start + clipDuration(clip) + deltaT;
+        const rawTime = drag.originStart + drag.originDuration + deltaT;
         const snapped = snapValue(rawTime, snapPoints, snapThreshold);
         setSnapGuide(snapped !== rawTime ? snapped : null);
         trimClip(drag.clipId, "out", snapped);
       }
-      setDrag((d) => (d ? { ...d, startX: e.clientX } : d));
     };
 
     const onUp = () => {
@@ -252,6 +273,48 @@ export function Timeline() {
     };
   }, [drag]);
 
+  // A transition block is a fully independent object now: dragging its body
+  // slides its own start (unrelated to the clips underneath), and dragging
+  // an edge resizes its own duration - neither touches the referenced
+  // clips' trim points. Dragging the body far enough off its track
+  // vertically and releasing deletes it.
+  useEffect(() => {
+    if (!transitionDrag) return;
+
+    const onMove = (e: MouseEvent) => {
+      const deltaT = pxToTime(e.clientX - transitionDrag.originX);
+      const { id, mode, originStart, originDuration } = transitionDrag;
+
+      if (mode === "move") {
+        updateTransition(id, { start: originStart + deltaT });
+      } else if (mode === "resize-left") {
+        const maxStart = originStart + originDuration - MIN_TRANSITION_DURATION;
+        const newStart = Math.min(maxStart, originStart + deltaT);
+        updateTransition(id, { start: newStart, duration: originStart + originDuration - newStart });
+      } else {
+        const newDuration = Math.max(MIN_TRANSITION_DURATION, originDuration + deltaT);
+        updateTransition(id, { duration: newDuration });
+      }
+    };
+
+    const onUp = (e: MouseEvent) => {
+      if (transitionDrag.mode === "move" && Math.abs(e.clientY - transitionDrag.originY) > DELETE_DRAG_THRESHOLD_PX) {
+        removeTransition(transitionDrag.id);
+      }
+      setTransitionDrag(null);
+    };
+
+    document.body.style.cursor = transitionDrag.mode === "move" ? "grabbing" : "ew-resize";
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+    return () => {
+      document.body.style.cursor = "";
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [transitionDrag, updateTransition, removeTransition, zoom]);
+
   const onTrackDrop = (e: React.DragEvent, trackId: string) => {
     e.preventDefault();
     const sourceId = e.dataTransfer.getData("application/x-source-id");
@@ -274,9 +337,12 @@ export function Timeline() {
         </button>
         <button
           className="btn-icon"
-          disabled={!selectedClipId}
-          onClick={() => selectedClipId && removeClip(selectedClipId)}
-          title="Delete clip (Del)"
+          disabled={!selectedClipId && !selectedTransitionId}
+          onClick={() => {
+            if (selectedClipId) removeClip(selectedClipId);
+            else if (selectedTransitionId) removeTransition(selectedTransitionId);
+          }}
+          title="Delete clip or transition (Del)"
         >
           <Trash2 size={14} />
         </button>
@@ -370,87 +436,105 @@ export function Timeline() {
                     />
                   </div>
                 ))}
-              {[...overlaps.map((o) => ({ ...o, crossTrack: false })), ...crossTrackOverlaps.map((o) => ({ ...o, crossTrack: true }))]
-                .filter((o) => o.trackId === track.id)
-                .map((o) => {
-                  const key = transitionKey(o.prevClip.id, o.nextClip.id);
-                  const type = transitionTypes[key] ?? "crossfade";
+              {transitions
+                .filter((t) => t.trackId === track.id)
+                .map((t) => {
+                  const prevClip = clips.find((c) => c.id === t.prevClipId);
+                  const nextClip = clips.find((c) => c.id === t.nextClipId);
+                  if (!prevClip || !nextClip) return null;
+                  const crossTrack = prevClip.trackId !== nextClip.trackId;
+                  // "Active" means the two referenced clips genuinely overlap
+                  // in time right now, so the effect actually has something
+                  // to blend during playback - independent of where this
+                  // block currently sits, which the user can freely move.
+                  const isActive = clipEnd(prevClip) > nextClip.start;
                   return (
                     <div
-                      key={key}
-                      className={`timeline-transition ${o.crossTrack ? "cross-track" : ""} ${dragOverKey === key ? "drag-over" : ""}`}
-                      style={{ left: timeToPx(o.start), width: Math.max(4, timeToPx(o.duration)) }}
-                      onMouseDown={(e) => e.stopPropagation()}
+                      key={t.id}
+                      className={`timeline-transition ${crossTrack ? "cross-track" : ""} ${isActive ? "" : "inactive"} ${selectedTransitionId === t.id ? "selected" : ""} ${dragOverKey === t.id ? "drag-over" : ""}`}
+                      style={{ left: timeToPx(t.start), width: Math.max(4, timeToPx(t.duration)) }}
+                      onMouseDown={(e) => {
+                        e.stopPropagation();
+                        selectTransition(t.id);
+                        setTransitionDrag({
+                          id: t.id,
+                          mode: "move",
+                          originX: e.clientX,
+                          originY: e.clientY,
+                          originStart: t.start,
+                          originDuration: t.duration,
+                        });
+                      }}
                       onDragOver={(e) => {
                         e.preventDefault();
-                        setDragOverKey(key);
+                        setDragOverKey(t.id);
                       }}
-                      onDragLeave={() => setDragOverKey((k) => (k === key ? null : k))}
-                      onDrop={(e) => onOverlapDrop(e, o.prevClip.id, o.nextClip.id)}
-                      title={`${TRANSITION_LABELS[type]} (${o.duration.toFixed(2)}s)${o.crossTrack ? " - cross-track" : ""}`}
+                      onDragLeave={() => setDragOverKey((k) => (k === t.id ? null : k))}
+                      onDrop={(e) => onTransitionTypeDrop(e, t.id)}
+                      title={`${TRANSITION_LABELS[t.type]} (${t.duration.toFixed(2)}s)${isActive ? "" : " - inactive, clips no longer overlap"} - drag to reposition, drag off the track to delete, drag a transition from the panel to change type${crossTrack ? " - cross-track" : ""}`}
                     >
                       <div
                         className="transition-handle transition-handle-left"
                         title="Drag to shorten/lengthen the transition"
-                        onMouseDown={(e) => onClipMouseDown(e, o.nextClip.id, "trim-in")}
+                        onMouseDown={(e) => {
+                          e.stopPropagation();
+                          selectTransition(t.id);
+                          setTransitionDrag({
+                            id: t.id,
+                            mode: "resize-left",
+                            originX: e.clientX,
+                            originY: e.clientY,
+                            originStart: t.start,
+                            originDuration: t.duration,
+                          });
+                        }}
                       />
                       <span className="timeline-transition-label">
-                        {TRANSITION_LABELS[type]}
-                        {o.crossTrack ? " ⇄" : ""}
+                        {TRANSITION_LABELS[t.type]}
+                        {crossTrack ? " ⇄" : ""}
                       </span>
                       <div
                         className="transition-handle transition-handle-right"
                         title="Drag to shorten/lengthen the transition"
-                        onMouseDown={(e) => onClipMouseDown(e, o.prevClip.id, "trim-out")}
+                        onMouseDown={(e) => {
+                          e.stopPropagation();
+                          selectTransition(t.id);
+                          setTransitionDrag({
+                            id: t.id,
+                            mode: "resize-right",
+                            originX: e.clientX,
+                            originY: e.clientY,
+                            originStart: t.start,
+                            originDuration: t.duration,
+                          });
+                        }}
                       />
-                      <select
-                        className="timeline-transition-select"
-                        value={type}
-                        onChange={(e) =>
-                          setTransitionType(
-                            o.prevClip.id,
-                            o.nextClip.id,
-                            e.target.value as TransitionType
-                          )
-                        }
-                      >
-                        {Object.entries(TRANSITION_LABELS).map(([value, label]) => (
-                          <option key={value} value={value}>
-                            {label}
-                          </option>
-                        ))}
-                      </select>
                     </div>
                   );
                 })}
               {adjacentPairs
-                .filter((p) => p.trackId === track.id)
+                .filter((p) => p.trackId === track.id && !hasTransitionFor(p.prevClip.id, p.nextClip.id))
                 .map((p) => {
                   const key = `${p.prevClip.id}->${p.nextClip.id}`;
+                  const center = (clipEnd(p.prevClip) + p.nextClip.start) / 2;
+                  const dropZoneStart = center - DEFAULT_TRANSITION_OVERLAP / 2;
                   return (
-                    <button
+                    <div
                       key={key}
-                      className={`add-transition-btn ${p.crossTrack ? "cross-track" : ""} ${dragOverKey === key ? "drag-over" : ""}`}
-                      style={{ left: timeToPx((clipEnd(p.prevClip) + p.nextClip.start) / 2) }}
-                      title={
-                        p.crossTrack
-                          ? "Add cross-track transition (click for crossfade, or drag one here)"
-                          : "Add transition (click for crossfade, or drag one here)"
-                      }
-                      onMouseDown={(e) => e.stopPropagation()}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        addTransition(p.prevClip.id, p.nextClip.id);
+                      className={`add-transition-zone ${p.crossTrack ? "cross-track" : ""} ${dragOverKey === key ? "drag-over" : ""}`}
+                      style={{
+                        left: timeToPx(dropZoneStart),
+                        width: Math.max(4, timeToPx(DEFAULT_TRANSITION_OVERLAP)),
                       }}
+                      title="Drag a transition here from the Transitions panel"
+                      onMouseDown={(e) => e.stopPropagation()}
                       onDragOver={(e) => {
                         e.preventDefault();
                         setDragOverKey(key);
                       }}
                       onDragLeave={() => setDragOverKey((k) => (k === key ? null : k))}
-                      onDrop={(e) => onBoundaryDrop(e, p.prevClip.id, p.nextClip.id)}
-                    >
-                      <Plus size={10} />
-                    </button>
+                      onDrop={(e) => onBoundaryDrop(e, p.prevClip.id, p.nextClip.id, p.trackId)}
+                    />
                   );
                 })}
             </div>

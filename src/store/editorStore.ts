@@ -3,6 +3,7 @@ import {
   type Clip,
   type Track,
   type TransitionType,
+  type TimelineTransition,
   moveClip as moveClipMath,
   trimClip as trimClipMath,
   splitClip as splitClipMath,
@@ -10,7 +11,6 @@ import {
   findClipAt,
   clipEnd,
   timelineDuration,
-  transitionKey,
 } from "../lib/timeline-math";
 
 export interface MediaSource {
@@ -29,6 +29,7 @@ export interface HydrateData {
   clips: Clip[];
   sources: MediaSource[];
   zoom: number;
+  transitions?: TimelineTransition[];
 }
 
 export type HydrateInput = HydrateData & { id: string; name: string };
@@ -44,9 +45,10 @@ interface EditorState {
   playhead: number;
   isPlaying: boolean;
   selectedClipId: string | null;
+  selectedTransitionId: string | null;
   zoom: number; // pixels per second
-  /** transition type for an overlap, keyed by transitionKey(prevClipId, nextClipId). Defaults to "crossfade" when absent. */
-  transitionTypes: Record<string, TransitionType>;
+  /** User-placed transitions - independent timeline objects, not derived from clip geometry. */
+  transitions: TimelineTransition[];
 
   addSource: (source: MediaSource) => void;
   addTrack: (kind: "video" | "audio") => void;
@@ -56,8 +58,18 @@ interface EditorState {
   trimClip: (clipId: string, edge: "in" | "out", time: number) => void;
   splitClipAtPlayhead: (clipId: string) => void;
   removeClip: (clipId: string) => void;
-  setTransitionType: (prevClipId: string, nextClipId: string, type: TransitionType) => void;
+  addTransition: (input: {
+    trackId: string;
+    prevClipId: string;
+    nextClipId: string;
+    start: number;
+    duration: number;
+    type: TransitionType;
+  }) => void;
+  updateTransition: (id: string, patch: Partial<Pick<TimelineTransition, "start" | "duration" | "type">>) => void;
+  removeTransition: (id: string) => void;
   selectClip: (clipId: string | null) => void;
+  selectTransition: (transitionId: string | null) => void;
   setPlayhead: (time: number) => void;
   setIsPlaying: (playing: boolean) => void;
   setZoom: (zoom: number) => void;
@@ -83,8 +95,9 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   playhead: 0,
   isPlaying: false,
   selectedClipId: null,
+  selectedTransitionId: null,
   zoom: 60,
-  transitionTypes: {},
+  transitions: [],
 
   addSource: (source) => set((s) => ({ sources: [...s.sources, source] })),
 
@@ -153,17 +166,32 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     set((s) => ({
       clips: rippleDeleteClipMath(s.clips, clipId),
       selectedClipId: s.selectedClipId === clipId ? null : s.selectedClipId,
-      transitionTypes: Object.fromEntries(
-        Object.entries(s.transitionTypes).filter(([k]) => !k.includes(clipId))
+      transitions: s.transitions.filter(
+        (t) => t.prevClipId !== clipId && t.nextClipId !== clipId
       ),
     })),
 
-  setTransitionType: (prevClipId, nextClipId, type) =>
+  addTransition: (input) =>
     set((s) => ({
-      transitionTypes: { ...s.transitionTypes, [transitionKey(prevClipId, nextClipId)]: type },
+      transitions: [
+        ...s.transitions,
+        { id: `transition-${Math.random().toString(36).slice(2, 9)}`, ...input },
+      ],
     })),
 
-  selectClip: (clipId) => set({ selectedClipId: clipId }),
+  updateTransition: (id, patch) =>
+    set((s) => ({
+      transitions: s.transitions.map((t) => (t.id === id ? { ...t, ...patch } : t)),
+    })),
+
+  removeTransition: (id) =>
+    set((s) => ({
+      transitions: s.transitions.filter((t) => t.id !== id),
+      selectedTransitionId: s.selectedTransitionId === id ? null : s.selectedTransitionId,
+    })),
+
+  selectClip: (clipId) => set({ selectedClipId: clipId, selectedTransitionId: null }),
+  selectTransition: (transitionId) => set({ selectedTransitionId: transitionId, selectedClipId: null }),
   setPlayhead: (time) => set({ playhead: Math.max(0, time) }),
   setIsPlaying: (playing) => set({ isPlaying: playing }),
   setZoom: (zoom) => set({ zoom: Math.min(300, Math.max(10, zoom)) }),
@@ -187,6 +215,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       playhead: 0,
       isPlaying: false,
       selectedClipId: null,
-      transitionTypes: {},
+      selectedTransitionId: null,
+      transitions: data.transitions ?? [],
     }),
 }));

@@ -6,7 +6,7 @@ import {
   clipEnd,
   findActivePair,
   findCrossTrackActivePair,
-  transitionKey,
+  getTransitionType,
 } from "../lib/timeline-math";
 import { Play, Pause, SkipBack } from "lucide-react";
 
@@ -95,7 +95,7 @@ export function Preview() {
   const setPlayhead = useEditorStore((s) => s.setPlayhead);
   const setIsPlaying = useEditorStore((s) => s.setIsPlaying);
   const duration = useEditorStore((s) => s.duration());
-  const transitionTypes = useEditorStore((s) => s.transitionTypes);
+  const transitions = useEditorStore((s) => s.transitions);
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const rafRef = useRef<number>(0);
@@ -110,7 +110,7 @@ export function Preview() {
   const secondaryClipIdRef = useRef<string | null>(null);
   const loadedSecondaryUrlRef = useRef<string | null>(null);
 
-  const crossTrackPair = findCrossTrackActivePair(clips, tracks, transitionTypes, playhead);
+  const crossTrackPair = findCrossTrackActivePair(clips, tracks, transitions, playhead);
   const { primary: activeClip, secondary: secondaryClip } =
     crossTrackPair ?? findActivePair(clips, tracks, "video", playhead);
   const activeSource = activeClip ? sources.find((s) => s.id === activeClip.sourceId) : undefined;
@@ -122,9 +122,7 @@ export function Preview() {
   activeClipRef.current = activeClip;
 
   const transitionType: TransitionType =
-    activeClip && secondaryClip
-      ? (transitionTypes[transitionKey(activeClip.id, secondaryClip.id)] ?? "crossfade")
-      : "crossfade";
+    activeClip && secondaryClip ? getTransitionType(transitions, activeClip.id, secondaryClip.id) : "crossfade";
 
   // Switch the underlying <video> element's source when the active clip changes.
   // Two clips split from the same original clip share a source/url - only

@@ -11,8 +11,10 @@ import "./App.css";
 
 function App() {
   const selectedClipId = useEditorStore((s) => s.selectedClipId);
+  const selectedTransitionId = useEditorStore((s) => s.selectedTransitionId);
   const splitClipAtPlayhead = useEditorStore((s) => s.splitClipAtPlayhead);
   const removeClip = useEditorStore((s) => s.removeClip);
+  const removeTransition = useEditorStore((s) => s.removeTransition);
   const saveStatus = useEditorStore((s) => s.saveStatus);
 
   useProjectPersistence();
@@ -31,11 +33,12 @@ function App() {
         splitClipAtPlayhead(selectedClipId);
       } else if (e.key === "Delete" || e.key === "Backspace") {
         if (selectedClipId) removeClip(selectedClipId);
+        else if (selectedTransitionId) removeTransition(selectedTransitionId);
       }
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [selectedClipId, splitClipAtPlayhead, removeClip]);
+  }, [selectedClipId, selectedTransitionId, splitClipAtPlayhead, removeClip, removeTransition]);
 
   return (
     <div className="app">

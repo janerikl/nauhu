@@ -18,7 +18,13 @@ const AUTOSAVE_DEBOUNCE_MS = 800;
 async function flushPendingSave(): Promise<void> {
   const s = useEditorStore.getState();
   if (!s.projectId) return;
-  await saveProjectById(s.projectId, s.projectName, { tracks: s.tracks, clips: s.clips, zoom: s.zoom, sources: s.sources });
+  await saveProjectById(s.projectId, s.projectName, {
+    tracks: s.tracks,
+    clips: s.clips,
+    zoom: s.zoom,
+    sources: s.sources,
+    transitions: s.transitions,
+  });
 }
 
 /**
@@ -66,7 +72,8 @@ export function useProjectPersistence() {
         state.tracks !== prev.tracks ||
         state.sources !== prev.sources ||
         state.zoom !== prev.zoom ||
-        state.projectName !== prev.projectName;
+        state.projectName !== prev.projectName ||
+        state.transitions !== prev.transitions;
       if (!changed) return;
 
       useEditorStore.getState().setSaveStatus("saving");

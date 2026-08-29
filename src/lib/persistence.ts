@@ -1,5 +1,5 @@
 import { openDB, type IDBPDatabase } from "idb";
-import type { Clip, Track } from "./timeline-math";
+import type { Clip, Track, TimelineTransition } from "./timeline-math";
 import type { HydrateData, MediaSource } from "../store/editorStore";
 
 const DB_NAME = "videoeditor-db";
@@ -28,6 +28,7 @@ export interface PersistedProject {
   clips: Clip[];
   zoom: number;
   sources: PersistedSourceMeta[];
+  transitions: TimelineTransition[];
 }
 
 export interface ProjectSummary {
@@ -69,6 +70,7 @@ function getDB(): Promise<IDBPDatabase> {
               clips: legacy.clips,
               zoom: legacy.zoom,
               sources: legacy.sources,
+              transitions: [],
             };
             await tx.objectStore(PROJECTS_STORE).put(migrated);
             await tx.objectStore(META_STORE).put(id, LAST_ACTIVE_KEY);
@@ -100,6 +102,7 @@ export async function createProject(name: string): Promise<string> {
     clips: [],
     zoom: 60,
     sources: [],
+    transitions: [],
   };
   await db.put(PROJECTS_STORE, project);
   return id;
@@ -109,7 +112,7 @@ export async function createProject(name: string): Promise<string> {
 export async function saveProjectById(
   id: string,
   name: string,
-  state: { tracks: Track[]; clips: Clip[]; zoom: number; sources: MediaSource[] }
+  state: { tracks: Track[]; clips: Clip[]; zoom: number; sources: MediaSource[]; transitions: TimelineTransition[] }
 ): Promise<void> {
   const db = await getDB();
 
@@ -121,6 +124,7 @@ export async function saveProjectById(
     clips: state.clips,
     zoom: state.zoom,
     sources: state.sources.map((s) => ({ id: s.id, name: s.name, duration: s.duration, kind: s.kind })),
+    transitions: state.transitions,
   };
 
   const tx = db.transaction([PROJECTS_STORE, MEDIA_STORE], "readwrite");
@@ -154,7 +158,15 @@ export async function loadProjectById(id: string): Promise<(HydrateData & { id: 
     sources.push({ ...meta, kind, blob, url: URL.createObjectURL(blob) });
   }
 
-  return { id: project.id, name: project.name, tracks: project.tracks, clips: project.clips, zoom: project.zoom, sources };
+  return {
+    id: project.id,
+    name: project.name,
+    tracks: project.tracks,
+    clips: project.clips,
+    zoom: project.zoom,
+    sources,
+    transitions: project.transitions ?? [],
+  };
 }
 
 export async function renameProject(id: string, name: string): Promise<void> {
