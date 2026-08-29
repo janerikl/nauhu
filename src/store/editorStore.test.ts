@@ -12,6 +12,9 @@ const resetStore = () => {
     playhead: 0,
     isPlaying: false,
     selectedClipId: null,
+    transitions: [],
+    undoStack: [],
+    redoStack: [],
   });
 };
 
@@ -109,5 +112,99 @@ describe("editorStore track management", () => {
     removeTrack(newTrackId);
     expect(useEditorStore.getState().tracks.find((t) => t.id === newTrackId)).toBeUndefined();
     expect(useEditorStore.getState().clips).toHaveLength(0);
+  });
+});
+
+describe("editorStore undo/redo", () => {
+  beforeEach(resetStore);
+
+  it("undoes and redoes adding a clip", () => {
+    const { addSource, addClipToTimeline, undo, redo } = useEditorStore.getState();
+    addSource({ id: "src-1", name: "clip.mp4", url: "blob:fake", duration: 10, kind: "video", blob: new Blob() });
+    addClipToTimeline("src-1", "video-1");
+    expect(useEditorStore.getState().clips).toHaveLength(1);
+
+    undo();
+    expect(useEditorStore.getState().clips).toHaveLength(0);
+
+    redo();
+    expect(useEditorStore.getState().clips).toHaveLength(1);
+  });
+
+  it("restores a removed track and its clips on undo", () => {
+    const { addTrack, addSource, addClipToTimeline, removeTrack, undo } = useEditorStore.getState();
+    addTrack("video");
+    const newTrackId = useEditorStore.getState().tracks.at(-1)!.id;
+    addSource({ id: "src-1", name: "clip.mp4", url: "blob:fake", duration: 5, kind: "video", blob: new Blob() });
+    addClipToTimeline("src-1", newTrackId);
+
+    removeTrack(newTrackId);
+    expect(useEditorStore.getState().tracks.find((t) => t.id === newTrackId)).toBeUndefined();
+
+    undo();
+    const state = useEditorStore.getState();
+    expect(state.tracks.find((t) => t.id === newTrackId)).toBeDefined();
+    expect(state.clips).toHaveLength(1);
+  });
+
+  it("steps back through multiple actions in order and forward again", () => {
+    const { addSource, addClipToTimeline, splitClipAtPlayhead, setPlayhead, undo, redo } =
+      useEditorStore.getState();
+    addSource({ id: "src-1", name: "clip.mp4", url: "blob:fake", duration: 10, kind: "video", blob: new Blob() });
+    addClipToTimeline("src-1", "video-1");
+    const clipId = useEditorStore.getState().clips[0].id;
+    setPlayhead(4);
+    splitClipAtPlayhead(clipId);
+    expect(useEditorStore.getState().clips).toHaveLength(2);
+
+    undo(); // undo split
+    expect(useEditorStore.getState().clips).toHaveLength(1);
+    undo(); // undo add clip
+    expect(useEditorStore.getState().clips).toHaveLength(0);
+
+    redo(); // redo add clip
+    expect(useEditorStore.getState().clips).toHaveLength(1);
+    redo(); // redo split
+    expect(useEditorStore.getState().clips).toHaveLength(2);
+  });
+
+  it("clears the redo stack once a new action is taken after an undo", () => {
+    const { addTrack, undo, redo } = useEditorStore.getState();
+    addTrack("video");
+    addTrack("video");
+    undo();
+    expect(useEditorStore.getState().redoStack).toHaveLength(1);
+
+    addTrack("audio");
+    expect(useEditorStore.getState().redoStack).toHaveLength(0);
+    redo();
+    expect(useEditorStore.getState().tracks).toHaveLength(useEditorStore.getState().tracks.length);
+  });
+
+  it("clears undo/redo history on hydrate", () => {
+    const { addTrack, hydrate } = useEditorStore.getState();
+    addTrack("video");
+    expect(useEditorStore.getState().undoStack.length).toBeGreaterThan(0);
+
+    hydrate({
+      id: "proj-1",
+      name: "Other Project",
+      tracks: [{ id: "video-1", name: "Video", kind: "video" }],
+      clips: [],
+      sources: [],
+      zoom: 60,
+    });
+
+    expect(useEditorStore.getState().undoStack).toHaveLength(0);
+    expect(useEditorStore.getState().redoStack).toHaveLength(0);
+  });
+
+  it("does nothing when the undo/redo stacks are empty", () => {
+    const { undo, redo } = useEditorStore.getState();
+    const before = useEditorStore.getState();
+    undo();
+    redo();
+    expect(useEditorStore.getState().clips).toEqual(before.clips);
+    expect(useEditorStore.getState().tracks).toEqual(before.tracks);
   });
 });

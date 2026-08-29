@@ -22,7 +22,14 @@ function App() {
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
       if ((e.target as HTMLElement)?.tagName === "INPUT") return;
-      if (e.code === "Space") {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "z") {
+        e.preventDefault();
+        if (e.shiftKey) useEditorStore.getState().redo();
+        else useEditorStore.getState().undo();
+      } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "y") {
+        e.preventDefault();
+        useEditorStore.getState().redo();
+      } else if (e.code === "Space") {
         e.preventDefault();
         useEditorStore.getState().setIsPlaying(!useEditorStore.getState().isPlaying);
       } else if (e.key === "Home") {

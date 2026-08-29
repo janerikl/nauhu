@@ -38,6 +38,16 @@ const CLIP_COLORS = ["#6366f1", "#22c55e", "#f97316", "#ec4899", "#06b6d4", "#ea
 let colorIdx = 0;
 const nextColor = () => CLIP_COLORS[colorIdx++ % CLIP_COLORS.length];
 
+const MAX_HISTORY = 50;
+
+/** The slice of state undo/redo restores - structural timeline/media edits, not playback or view state. */
+interface HistorySnapshot {
+  tracks: Track[];
+  clips: Clip[];
+  transitions: TimelineTransition[];
+  sources: MediaSource[];
+}
+
 interface EditorState {
   sources: MediaSource[];
   tracks: Track[];
@@ -49,6 +59,13 @@ interface EditorState {
   zoom: number; // pixels per second
   /** User-placed transitions - independent timeline objects, not derived from clip geometry. */
   transitions: TimelineTransition[];
+
+  undoStack: HistorySnapshot[];
+  redoStack: HistorySnapshot[];
+  /** Snapshots current undoable state onto the undo stack and clears redo. Call once per gesture (e.g. drag-start), not per intermediate update. */
+  pushHistory: () => void;
+  undo: () => void;
+  redo: () => void;
 
   addSource: (source: MediaSource) => void;
   addTrack: (kind: "video" | "audio") => void;
@@ -99,9 +116,57 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   zoom: 60,
   transitions: [],
 
-  addSource: (source) => set((s) => ({ sources: [...s.sources, source] })),
+  undoStack: [],
+  redoStack: [],
 
-  addTrack: (kind) =>
+  pushHistory: () =>
+    set((s) => ({
+      undoStack: [
+        ...s.undoStack,
+        { tracks: s.tracks, clips: s.clips, transitions: s.transitions, sources: s.sources },
+      ].slice(-MAX_HISTORY),
+      redoStack: [],
+    })),
+
+  undo: () =>
+    set((s) => {
+      const snapshot = s.undoStack[s.undoStack.length - 1];
+      if (!snapshot) return s;
+      return {
+        ...snapshot,
+        undoStack: s.undoStack.slice(0, -1),
+        redoStack: [
+          ...s.redoStack,
+          { tracks: s.tracks, clips: s.clips, transitions: s.transitions, sources: s.sources },
+        ],
+        selectedClipId: null,
+        selectedTransitionId: null,
+      };
+    }),
+
+  redo: () =>
+    set((s) => {
+      const snapshot = s.redoStack[s.redoStack.length - 1];
+      if (!snapshot) return s;
+      return {
+        ...snapshot,
+        redoStack: s.redoStack.slice(0, -1),
+        undoStack: [
+          ...s.undoStack,
+          { tracks: s.tracks, clips: s.clips, transitions: s.transitions, sources: s.sources },
+        ],
+        selectedClipId: null,
+        selectedTransitionId: null,
+      };
+    }),
+
+  addSource: (source) => {
+    get().pushHistory();
+    set((s) => ({ sources: [...s.sources, source] }));
+  },
+
+  addTrack: (kind) => {
+    get().pushHistory();
     set((s) => {
       const countOfKind = s.tracks.filter((t) => t.kind === kind).length;
       const id = `${kind}-${Math.random().toString(36).slice(2, 7)}`;
@@ -109,13 +174,16 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       return {
         tracks: [...s.tracks, { id, name: `${label} ${countOfKind + 1}`, kind }],
       };
-    }),
+    });
+  },
 
-  removeTrack: (trackId) =>
+  removeTrack: (trackId) => {
+    get().pushHistory();
     set((s) => ({
       tracks: s.tracks.filter((t) => t.id !== trackId),
       clips: s.clips.filter((c) => c.trackId !== trackId),
-    })),
+    }));
+  },
 
   addClipToTimeline: (sourceId, trackId, atStart) => {
     const source = get().sources.find((s) => s.id === sourceId);
@@ -133,9 +201,12 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       start,
       color: nextColor(),
     };
+    get().pushHistory();
     set((s) => ({ clips: [...s.clips, clip] }));
   },
 
+  // Not history-snapshotting: called on every mousemove while dragging a
+  // clip. Callers snapshot once at drag-start instead.
   moveClip: (clipId, newStart, targetTrackId) =>
     set((s) => ({ clips: moveClipMath(s.clips, clipId, newStart, targetTrackId) })),
 
@@ -152,7 +223,8 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       return { clips, playhead };
     }),
 
-  splitClipAtPlayhead: (clipId) =>
+  splitClipAtPlayhead: (clipId) => {
+    get().pushHistory();
     set((s) => {
       const clip = s.clips.find((c) => c.id === clipId);
       const clips = clip ? splitClipMath(s.clips, clipId, s.playhead) : s.clips;
@@ -160,35 +232,44 @@ export const useEditorStore = create<EditorState>((set, get) => ({
         ? (findClipAt(clips, clip.trackId, s.playhead)?.id ?? s.selectedClipId)
         : s.selectedClipId;
       return { clips, selectedClipId };
-    }),
+    });
+  },
 
-  removeClip: (clipId) =>
+  removeClip: (clipId) => {
+    get().pushHistory();
     set((s) => ({
       clips: rippleDeleteClipMath(s.clips, clipId),
       selectedClipId: s.selectedClipId === clipId ? null : s.selectedClipId,
       transitions: s.transitions.filter(
         (t) => t.prevClipId !== clipId && t.nextClipId !== clipId
       ),
-    })),
+    }));
+  },
 
-  addTransition: (input) =>
+  addTransition: (input) => {
+    get().pushHistory();
     set((s) => ({
       transitions: [
         ...s.transitions,
         { id: `transition-${Math.random().toString(36).slice(2, 9)}`, ...input },
       ],
-    })),
+    }));
+  },
 
+  // Not history-snapshotting: called on every mousemove while dragging a
+  // transition's body/handles. Callers snapshot once at drag-start instead.
   updateTransition: (id, patch) =>
     set((s) => ({
       transitions: s.transitions.map((t) => (t.id === id ? { ...t, ...patch } : t)),
     })),
 
-  removeTransition: (id) =>
+  removeTransition: (id) => {
+    get().pushHistory();
     set((s) => ({
       transitions: s.transitions.filter((t) => t.id !== id),
       selectedTransitionId: s.selectedTransitionId === id ? null : s.selectedTransitionId,
-    })),
+    }));
+  },
 
   selectClip: (clipId) => set({ selectedClipId: clipId, selectedTransitionId: null }),
   selectTransition: (transitionId) => set({ selectedTransitionId: transitionId, selectedClipId: null }),
@@ -217,5 +298,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       selectedClipId: null,
       selectedTransitionId: null,
       transitions: data.transitions ?? [],
+      undoStack: [],
+      redoStack: [],
     }),
 }));
