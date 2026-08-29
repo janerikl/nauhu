@@ -48,6 +48,41 @@ describe("editorStore splitClipAtPlayhead", () => {
   });
 });
 
+describe("editorStore trimClip", () => {
+  beforeEach(resetStore);
+
+  it("clamps the playhead back inside a clip trimmed shorter from the end", () => {
+    const { addSource, addClipToTimeline, trimClip, setPlayhead } = useEditorStore.getState();
+
+    addSource({ id: "src-1", name: "clip.mp4", url: "blob:fake", duration: 10, kind: "video", blob: new Blob() });
+    addClipToTimeline("src-1", "video-1");
+    const clipId = useEditorStore.getState().clips[0].id;
+
+    setPlayhead(9);
+    trimClip(clipId, "out", 4);
+
+    const state = useEditorStore.getState();
+    const clip = state.clips[0];
+    expect(state.playhead).toBeLessThan(4);
+    expect(state.playhead).toBeGreaterThanOrEqual(clip.start);
+  });
+
+  it("clamps the playhead forward when trimming the in-point past it", () => {
+    const { addSource, addClipToTimeline, trimClip, setPlayhead } = useEditorStore.getState();
+
+    addSource({ id: "src-1", name: "clip.mp4", url: "blob:fake", duration: 10, kind: "video", blob: new Blob() });
+    addClipToTimeline("src-1", "video-1");
+    const clipId = useEditorStore.getState().clips[0].id;
+
+    setPlayhead(1);
+    trimClip(clipId, "in", 5);
+
+    const state = useEditorStore.getState();
+    const clip = state.clips[0];
+    expect(state.playhead).toBe(clip.start);
+  });
+});
+
 describe("editorStore track management", () => {
   beforeEach(resetStore);
 

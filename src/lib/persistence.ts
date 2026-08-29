@@ -12,7 +12,7 @@ interface PersistedSourceMeta {
   id: string;
   name: string;
   duration: number;
-  kind: "video" | "audio";
+  kind: "video" | "audio" | "image";
 }
 
 interface PersistedProject {
@@ -76,7 +76,11 @@ export async function loadProject(): Promise<HydrateData | null> {
   for (const meta of project.sources) {
     const blob = (await db.get(MEDIA_STORE, meta.id)) as Blob | undefined;
     if (!blob) continue; // media missing (e.g. cleared storage) - skip, keep the rest of the project usable
-    sources.push({ ...meta, blob, url: URL.createObjectURL(blob) });
+    // Projects saved before image import support tagged image files as
+    // "video" (the only non-audio kind that existed then); fix that up here
+    // so old projects get real image playback instead of a stalled <video>.
+    const kind = meta.kind === "video" && blob.type.startsWith("image") ? "image" : meta.kind;
+    sources.push({ ...meta, kind, blob, url: URL.createObjectURL(blob) });
   }
 
   return { tracks: project.tracks, clips: project.clips, zoom: project.zoom, sources };

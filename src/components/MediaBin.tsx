@@ -2,6 +2,8 @@ import { useCallback, useRef } from "react";
 import { useEditorStore } from "../store/editorStore";
 import { Film, Upload } from "lucide-react";
 
+const DEFAULT_IMAGE_DURATION = 5;
+
 function loadMediaDuration(url: string): Promise<number> {
   return new Promise((resolve) => {
     const v = document.createElement("video");
@@ -22,13 +24,18 @@ export function MediaBin() {
       if (!files) return;
       for (const file of Array.from(files)) {
         const url = URL.createObjectURL(file);
-        const duration = await loadMediaDuration(url);
+        const kind = file.type.startsWith("audio")
+          ? "audio"
+          : file.type.startsWith("image")
+            ? "image"
+            : "video";
+        const duration = kind === "image" ? DEFAULT_IMAGE_DURATION : await loadMediaDuration(url);
         addSource({
           id: `src-${Math.random().toString(36).slice(2, 9)}`,
           name: file.name,
           url,
           duration,
-          kind: file.type.startsWith("audio") ? "audio" : "video",
+          kind,
           blob: file,
         });
       }
@@ -50,7 +57,7 @@ export function MediaBin() {
         <input
           ref={inputRef}
           type="file"
-          accept="video/*,audio/*"
+          accept="video/*,audio/*,image/*"
           multiple
           hidden
           onChange={(e) => handleFiles(e.target.files)}

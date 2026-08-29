@@ -1,5 +1,6 @@
 import { useEffect } from "react";
 import { MediaBin } from "./components/MediaBin";
+import { TransitionsPanel } from "./components/TransitionsPanel";
 import { Timeline } from "./components/Timeline";
 import { Preview } from "./components/Preview";
 import { ExportPanel } from "./components/ExportPanel";
@@ -21,6 +22,10 @@ function App() {
       if (e.code === "Space") {
         e.preventDefault();
         useEditorStore.getState().setIsPlaying(!useEditorStore.getState().isPlaying);
+      } else if (e.key === "Home") {
+        e.preventDefault();
+        useEditorStore.getState().setPlayhead(0);
+        useEditorStore.getState().setIsPlaying(true);
       } else if (e.key === "s" && selectedClipId) {
         splitClipAtPlayhead(selectedClipId);
       } else if (e.key === "Delete" || e.key === "Backspace") {
@@ -43,7 +48,10 @@ function App() {
         </div>
       </header>
       <div className="app-body">
-        <MediaBin />
+        <div className="sidebar">
+          <MediaBin />
+          <TransitionsPanel />
+        </div>
         <Preview />
       </div>
       <Timeline />

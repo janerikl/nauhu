@@ -9,6 +9,8 @@ import {
   rippleDeleteClip,
   timelineDuration,
   findActiveClip,
+  findActivePair,
+  getOverlaps,
   collectSnapPoints,
   snapValue,
   snapMoveStart,
@@ -82,7 +84,7 @@ describe("moveClip", () => {
     expect(result[0].start).toBe(0);
   });
 
-  it("resolves overlap by snapping to nearest free edge", () => {
+  it("allows a bounded overlap with a neighbor (for a transition)", () => {
     const clips = [
       makeClip({ id: "a", start: 0, sourceOut: 5 }),
       makeClip({ id: "b", trackId: "t1", start: 20, sourceIn: 0, sourceOut: 5 }),
@@ -90,7 +92,23 @@ describe("moveClip", () => {
     const result = moveClip(clips, "b", 2);
     const a = result.find((c) => c.id === "a")!;
     const b = result.find((c) => c.id === "b")!;
-    expect(b.start).toBeGreaterThanOrEqual(clipEnd(a));
+    const overlap = Math.min(clipEnd(a), clipEnd(b)) - Math.max(a.start, b.start);
+    expect(overlap).toBeGreaterThan(0);
+    expect(overlap).toBeLessThanOrEqual(5 * 0.9 + 1e-9);
+  });
+
+  it("clamps overlap so a clip can never fully pass through a neighbor", () => {
+    const clips = [
+      makeClip({ id: "a", start: 0, sourceOut: 5 }),
+      makeClip({ id: "b", trackId: "t1", start: 20, sourceIn: 0, sourceOut: 5 }),
+    ];
+    const result = moveClip(clips, "b", 0);
+    const a = result.find((c) => c.id === "a")!;
+    const b = result.find((c) => c.id === "b")!;
+    const overlap = Math.min(clipEnd(a), clipEnd(b)) - Math.max(a.start, b.start);
+    expect(overlap).toBeLessThanOrEqual(5 * 0.9 + 1e-9);
+    // both clips remain at least partially exposed on their own
+    expect(b.start + 5 > clipEnd(a) || a.start < b.start).toBe(true);
   });
 
   it("moves a clip onto a different track when a target track is given", () => {
@@ -100,17 +118,18 @@ describe("moveClip", () => {
     expect(result[0].start).toBe(3);
   });
 
-  it("resolves overlap against siblings on the destination track, not the origin track", () => {
+  it("resolves overlap against siblings on the destination track, not the origin track, bounded to avoid full pass-through", () => {
     const clips = [
       makeClip({ id: "a", trackId: "video-1", start: 0, sourceOut: 5 }),
       makeClip({ id: "b", trackId: "video-2", start: 10, sourceIn: 0, sourceOut: 16 }),
     ];
-    const result = moveClip(clips, "a", 8, "video-2");
+    const result = moveClip(clips, "a", 10, "video-2");
     const moved = result.find((c) => c.id === "a")!;
     const sibling = result.find((c) => c.id === "b")!;
     expect(moved.trackId).toBe("video-2");
-    const noOverlap = moved.start >= clipEnd(sibling) || moved.start + 5 <= sibling.start;
-    expect(noOverlap).toBe(true);
+    const overlap = Math.min(clipEnd(moved), clipEnd(sibling)) - Math.max(moved.start, sibling.start);
+    const maxOverlap = Math.min(5, 16) * 0.9;
+    expect(overlap).toBeLessThanOrEqual(maxOverlap + 1e-9);
   });
 });
 
@@ -172,6 +191,56 @@ describe("findActiveClip", () => {
   it("returns undefined when no track has a clip at the given time", () => {
     const clips = [makeClip({ id: "a", trackId: "video-1", start: 10, sourceOut: 15 })];
     expect(findActiveClip(clips, tracks, "video", 2)).toBeUndefined();
+  });
+});
+
+describe("getOverlaps", () => {
+  const tracks: Track[] = [{ id: "video-1", name: "Video 1", kind: "video" }];
+
+  it("finds no overlaps for sequential, non-overlapping clips", () => {
+    const clips = [
+      makeClip({ id: "a", trackId: "video-1", start: 0, sourceOut: 5 }),
+      makeClip({ id: "b", trackId: "video-1", start: 5, sourceOut: 5 }),
+    ];
+    expect(getOverlaps(clips, tracks)).toHaveLength(0);
+  });
+
+  it("reports the overlap region between two time-adjacent overlapping clips", () => {
+    const clips = [
+      makeClip({ id: "a", trackId: "video-1", start: 0, sourceOut: 5 }),
+      makeClip({ id: "b", trackId: "video-1", start: 3, sourceOut: 5 }),
+    ];
+    const overlaps = getOverlaps(clips, tracks);
+    expect(overlaps).toHaveLength(1);
+    expect(overlaps[0].prevClip.id).toBe("a");
+    expect(overlaps[0].nextClip.id).toBe("b");
+    expect(overlaps[0].start).toBe(3);
+    expect(overlaps[0].end).toBe(5);
+    expect(overlaps[0].duration).toBe(2);
+  });
+});
+
+describe("findActivePair", () => {
+  const tracks: Track[] = [{ id: "video-1", name: "Video 1", kind: "video" }];
+
+  it("returns only the primary clip outside an overlap", () => {
+    const clips = [
+      makeClip({ id: "a", trackId: "video-1", start: 0, sourceOut: 5 }),
+      makeClip({ id: "b", trackId: "video-1", start: 3, sourceOut: 5 }),
+    ];
+    const pair = findActivePair(clips, tracks, "video", 1);
+    expect(pair.primary?.id).toBe("a");
+    expect(pair.secondary).toBeUndefined();
+  });
+
+  it("returns primary (outgoing) and secondary (incoming) clips inside an overlap", () => {
+    const clips = [
+      makeClip({ id: "a", trackId: "video-1", start: 0, sourceOut: 5 }),
+      makeClip({ id: "b", trackId: "video-1", start: 3, sourceOut: 5 }),
+    ];
+    const pair = findActivePair(clips, tracks, "video", 4);
+    expect(pair.primary?.id).toBe("a");
+    expect(pair.secondary?.id).toBe("b");
   });
 });
 

@@ -2,12 +2,15 @@ import { create } from "zustand";
 import {
   type Clip,
   type Track,
+  type TransitionType,
   moveClip as moveClipMath,
   trimClip as trimClipMath,
   splitClip as splitClipMath,
   rippleDeleteClip as rippleDeleteClipMath,
   findClipAt,
+  clipEnd,
   timelineDuration,
+  transitionKey,
 } from "../lib/timeline-math";
 
 export interface MediaSource {
@@ -15,7 +18,7 @@ export interface MediaSource {
   name: string;
   url: string;
   duration: number;
-  kind: "video" | "audio";
+  kind: "video" | "audio" | "image";
   thumbnail?: string;
   /** The raw file data, kept in memory so it can be persisted (e.g. to IndexedDB). */
   blob: Blob;
@@ -40,6 +43,8 @@ interface EditorState {
   isPlaying: boolean;
   selectedClipId: string | null;
   zoom: number; // pixels per second
+  /** transition type for an overlap, keyed by transitionKey(prevClipId, nextClipId). Defaults to "crossfade" when absent. */
+  transitionTypes: Record<string, TransitionType>;
 
   addSource: (source: MediaSource) => void;
   addTrack: (kind: "video" | "audio") => void;
@@ -49,6 +54,7 @@ interface EditorState {
   trimClip: (clipId: string, edge: "in" | "out", time: number) => void;
   splitClipAtPlayhead: (clipId: string) => void;
   removeClip: (clipId: string) => void;
+  setTransitionType: (prevClipId: string, nextClipId: string, type: TransitionType) => void;
   selectClip: (clipId: string | null) => void;
   setPlayhead: (time: number) => void;
   setIsPlaying: (playing: boolean) => void;
@@ -71,6 +77,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   isPlaying: false,
   selectedClipId: null,
   zoom: 60,
+  transitionTypes: {},
 
   addSource: (source) => set((s) => ({ sources: [...s.sources, source] })),
 
@@ -113,7 +120,17 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     set((s) => ({ clips: moveClipMath(s.clips, clipId, newStart, targetTrackId) })),
 
   trimClip: (clipId, edge, time) =>
-    set((s) => ({ clips: trimClipMath(s.clips, clipId, edge, time) })),
+    set((s) => {
+      const clips = trimClipMath(s.clips, clipId, edge, time);
+      const clip = clips.find((c) => c.id === clipId);
+      let playhead = s.playhead;
+      if (clip) {
+        const end = clipEnd(clip);
+        if (playhead >= end) playhead = Math.max(clip.start, end - 0.001);
+        else if (playhead < clip.start) playhead = clip.start;
+      }
+      return { clips, playhead };
+    }),
 
   splitClipAtPlayhead: (clipId) =>
     set((s) => {
@@ -129,6 +146,14 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     set((s) => ({
       clips: rippleDeleteClipMath(s.clips, clipId),
       selectedClipId: s.selectedClipId === clipId ? null : s.selectedClipId,
+      transitionTypes: Object.fromEntries(
+        Object.entries(s.transitionTypes).filter(([k]) => !k.includes(clipId))
+      ),
+    })),
+
+  setTransitionType: (prevClipId, nextClipId, type) =>
+    set((s) => ({
+      transitionTypes: { ...s.transitionTypes, [transitionKey(prevClipId, nextClipId)]: type },
     })),
 
   selectClip: (clipId) => set({ selectedClipId: clipId }),
