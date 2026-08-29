@@ -51,7 +51,18 @@ function App() {
     <div className="app">
       <header className="app-header">
         <div className="app-header-left">
-          <h1>Web Video Editor</h1>
+          <div className="app-brand">
+            <svg width="20" height="20" viewBox="0 0 32 32" fill="none" aria-hidden="true">
+              <rect width="32" height="32" rx="9" fill="var(--accent)" />
+              <rect x="5.5" y="9" width="21" height="15" rx="2.2" fill="var(--accent-ink)" />
+              <rect x="8.3" y="11.6" width="15.4" height="3.2" rx="1" fill="var(--accent)" />
+              <circle cx="11.6" cy="19.6" r="3" fill="var(--accent)" />
+              <circle cx="20.4" cy="19.6" r="3" fill="var(--accent)" />
+              <circle cx="11.6" cy="19.6" r="1" fill="var(--accent-ink)" />
+              <circle cx="20.4" cy="19.6" r="1" fill="var(--accent-ink)" />
+            </svg>
+            <h1>Nauhu</h1>
+          </div>
           <ProjectMenu />
         </div>
         <div className="app-header-right">
