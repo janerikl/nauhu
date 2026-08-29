@@ -1,31 +1,56 @@
 import { useEffect, useRef } from "react";
 import { useEditorStore } from "../store/editorStore";
-import { loadProject, saveProject } from "../lib/persistence";
+import {
+  createProject,
+  deleteProject,
+  getLastActiveProjectId,
+  listProjects,
+  loadProjectById,
+  renameProject,
+  saveProjectById,
+  setLastActiveProjectId,
+  type ProjectSummary,
+} from "../lib/persistence";
 
 const AUTOSAVE_DEBOUNCE_MS = 800;
 
+/** Persists whatever autosave debounce is in flight so a project switch never loses pending edits. */
+async function flushPendingSave(): Promise<void> {
+  const s = useEditorStore.getState();
+  if (!s.projectId) return;
+  await saveProjectById(s.projectId, s.projectName, { tracks: s.tracks, clips: s.clips, zoom: s.zoom, sources: s.sources });
+}
+
 /**
- * Loads any previously saved project from IndexedDB on mount, then autosaves
- * (debounced) whenever clips/tracks/sources/zoom change. Playhead/playing/
- * selection changes are intentionally excluded so playback doesn't trigger
- * writes on every animation frame.
+ * Loads the last-active project (or creates a default one) on mount, then
+ * autosaves (debounced) whenever clips/tracks/sources/zoom change. Playhead/
+ * playing/selection changes are intentionally excluded so playback doesn't
+ * trigger writes on every animation frame.
  */
 export function useProjectPersistence() {
   const hydratedRef = useRef(false);
 
   useEffect(() => {
     let cancelled = false;
-    loadProject()
-      .then((data) => {
+    (async () => {
+      try {
+        let id = await getLastActiveProjectId();
+        if (!id) {
+          const projects = await listProjects();
+          id = projects[0]?.id ?? (await createProject("Untitled Project"));
+        }
+        const data = await loadProjectById(id);
         if (cancelled) return;
-        if (data) useEditorStore.getState().hydrate(data);
-      })
-      .catch((err) => {
+        if (data) {
+          useEditorStore.getState().hydrate(data);
+          await setLastActiveProjectId(id);
+        }
+      } catch (err) {
         console.error("Failed to load saved project", err);
-      })
-      .finally(() => {
+      } finally {
         if (!cancelled) hydratedRef.current = true;
-      });
+      }
+    })();
     return () => {
       cancelled = true;
     };
@@ -40,15 +65,15 @@ export function useProjectPersistence() {
         state.clips !== prev.clips ||
         state.tracks !== prev.tracks ||
         state.sources !== prev.sources ||
-        state.zoom !== prev.zoom;
+        state.zoom !== prev.zoom ||
+        state.projectName !== prev.projectName;
       if (!changed) return;
 
       useEditorStore.getState().setSaveStatus("saving");
       if (timeout) clearTimeout(timeout);
       timeout = setTimeout(async () => {
-        const s = useEditorStore.getState();
         try {
-          await saveProject({ tracks: s.tracks, clips: s.clips, zoom: s.zoom, sources: s.sources });
+          await flushPendingSave();
           useEditorStore.getState().setSaveStatus("saved");
         } catch (err) {
           console.error("Failed to save project", err);
@@ -61,4 +86,46 @@ export function useProjectPersistence() {
       if (timeout) clearTimeout(timeout);
     };
   }, []);
+}
+
+export async function getProjectList(): Promise<ProjectSummary[]> {
+  return listProjects();
+}
+
+/** Switches the editor to a different saved project, flushing any pending autosave first. */
+export async function switchProject(id: string): Promise<void> {
+  await flushPendingSave();
+  const data = await loadProjectById(id);
+  if (!data) return;
+  useEditorStore.getState().hydrate(data);
+  await setLastActiveProjectId(id);
+}
+
+/** Creates a new empty project and switches to it. */
+export async function createAndSwitchProject(name: string): Promise<void> {
+  await flushPendingSave();
+  const id = await createProject(name);
+  await switchProject(id);
+}
+
+export async function renameCurrentProject(name: string): Promise<void> {
+  const id = useEditorStore.getState().projectId;
+  if (!id) return;
+  useEditorStore.getState().setProjectName(name);
+  await renameProject(id, name);
+}
+
+/** Deletes a project. If it's the current one, switches to another project (creating a default if none remain). */
+export async function deleteProjectAndSwitchIfNeeded(id: string): Promise<void> {
+  const currentId = useEditorStore.getState().projectId;
+  await deleteProject(id);
+  if (id !== currentId) return;
+
+  const remaining = await listProjects();
+  if (remaining.length > 0) {
+    await switchProject(remaining[0].id);
+  } else {
+    const newId = await createProject("Untitled Project");
+    await switchProject(newId);
+  }
 }

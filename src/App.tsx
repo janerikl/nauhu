@@ -4,6 +4,7 @@ import { TransitionsPanel } from "./components/TransitionsPanel";
 import { Timeline } from "./components/Timeline";
 import { Preview } from "./components/Preview";
 import { ExportPanel } from "./components/ExportPanel";
+import { ProjectMenu } from "./components/ProjectMenu";
 import { useEditorStore } from "./store/editorStore";
 import { useProjectPersistence } from "./hooks/useProjectPersistence";
 import "./App.css";
@@ -39,7 +40,10 @@ function App() {
   return (
     <div className="app">
       <header className="app-header">
-        <h1>Web Video Editor</h1>
+        <div className="app-header-left">
+          <h1>Web Video Editor</h1>
+          <ProjectMenu />
+        </div>
         <div className="app-header-right">
           {saveStatus !== "idle" && (
             <span className="save-status">{saveStatus === "saving" ? "Saving…" : "Saved"}</span>

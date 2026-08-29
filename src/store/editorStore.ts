@@ -31,6 +31,8 @@ export interface HydrateData {
   zoom: number;
 }
 
+export type HydrateInput = HydrateData & { id: string; name: string };
+
 const CLIP_COLORS = ["#6366f1", "#22c55e", "#f97316", "#ec4899", "#06b6d4", "#eab308"];
 let colorIdx = 0;
 const nextColor = () => CLIP_COLORS[colorIdx++ % CLIP_COLORS.length];
@@ -63,7 +65,12 @@ interface EditorState {
 
   saveStatus: "idle" | "saving" | "saved";
   setSaveStatus: (status: "idle" | "saving" | "saved") => void;
-  hydrate: (data: HydrateData) => void;
+
+  projectId: string | null;
+  projectName: string;
+  setProjectName: (name: string) => void;
+
+  hydrate: (data: HydrateInput) => void;
 }
 
 export const useEditorStore = create<EditorState>((set, get) => ({
@@ -164,8 +171,15 @@ export const useEditorStore = create<EditorState>((set, get) => ({
 
   saveStatus: "idle",
   setSaveStatus: (status) => set({ saveStatus: status }),
+
+  projectId: null,
+  projectName: "Untitled Project",
+  setProjectName: (name) => set({ projectName: name }),
+
   hydrate: (data) =>
     set({
+      projectId: data.id,
+      projectName: data.name,
       tracks: data.tracks,
       clips: data.clips,
       sources: data.sources,
@@ -173,5 +187,6 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       playhead: 0,
       isPlaying: false,
       selectedClipId: null,
+      transitionTypes: {},
     }),
 }));

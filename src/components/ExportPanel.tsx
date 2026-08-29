@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useRef, useCallback, useEffect } from "react";
 import { useEditorStore } from "../store/editorStore";
 import { exportTimeline } from "../lib/ffmpeg-export";
 import { Download, Loader2 } from "lucide-react";
@@ -10,6 +10,26 @@ export function ExportPanel() {
   const [status, setStatus] = useState<"idle" | "loading" | "exporting" | "done" | "error">("idle");
   const [progress, setProgress] = useState(0);
   const [error, setError] = useState("");
+
+  // ffmpeg's progress event can fire many times per second (it runs in its own
+  // Web Worker, so this doesn't block encoding, but forwarding every tick
+  // straight into React state floods the main thread with re-renders and
+  // makes the tab feel like it's hanging). Coalesce updates to one per frame.
+  const latestProgress = useRef(0);
+  const rafId = useRef<number | null>(null);
+  const handleProgress = useCallback((ratio: number) => {
+    latestProgress.current = ratio;
+    if (rafId.current !== null) return;
+    rafId.current = requestAnimationFrame(() => {
+      rafId.current = null;
+      setProgress(latestProgress.current);
+    });
+  }, []);
+  useEffect(() => {
+    return () => {
+      if (rafId.current !== null) cancelAnimationFrame(rafId.current);
+    };
+  }, []);
 
   // Export currently supports a single video track (no cross-track overlay
   // compositing yet); pick the first video track, in track order, that
@@ -23,9 +43,11 @@ export function ExportPanel() {
     if (!exportTrackId) return;
     setStatus("loading");
     setError("");
+    latestProgress.current = 0;
+    setProgress(0);
     try {
       setStatus("exporting");
-      const blob = await exportTimeline(clips, sources, exportTrackId, setProgress);
+      const blob = await exportTimeline(clips, sources, exportTrackId, handleProgress);
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
@@ -44,7 +66,7 @@ export function ExportPanel() {
       <button className="btn-primary" disabled={!hasClips || status === "exporting" || status === "loading"} onClick={handleExport}>
         {status === "exporting" || status === "loading" ? (
           <>
-            <Loader2 size={14} className="spin" /> {status === "loading" ? "Loading engine..." : `Exporting ${(progress * 100).toFixed(0)}%`}
+            <Loader2 size={14} className="spin" /> {status === "loading" ? "Loading engine..." : `Exporting ${Math.min(100, Math.max(0, progress * 100)).toFixed(0)}%`}
           </>
         ) : (
           <>
