@@ -47,7 +47,7 @@ export function ExportPanel() {
     setProgress(0);
     try {
       setStatus("exporting");
-      const blob = await exportTimeline(clips, sources, exportTrackId, handleProgress);
+      const blob = await exportTimeline(clips, sources, exportTrackId, handleProgress, tracks);
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;

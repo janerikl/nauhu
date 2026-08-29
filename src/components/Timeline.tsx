@@ -45,6 +45,7 @@ export function Timeline() {
   const addTrack = useEditorStore((s) => s.addTrack);
   const removeTrack = useEditorStore((s) => s.removeTrack);
   const addClipToTimeline = useEditorStore((s) => s.addClipToTimeline);
+  const addTextClip = useEditorStore((s) => s.addTextClip);
   const moveClip = useEditorStore((s) => s.moveClip);
   const trimClip = useEditorStore((s) => s.trimClip);
   const splitClipAtPlayhead = useEditorStore((s) => s.splitClipAtPlayhead);
@@ -365,6 +366,16 @@ export function Timeline() {
         <button className="btn-icon" onClick={() => addTrack("audio")} title="Add audio track">
           <Plus size={14} /> Audio
         </button>
+        <button
+          className="btn-icon"
+          onClick={() => {
+            const trackId = addTrack("text");
+            addTextClip(trackId, playhead);
+          }}
+          title="Add text track"
+        >
+          <Plus size={14} /> Text
+        </button>
         <span className="timeline-divider" />
         <button
           className="btn-icon"
@@ -414,6 +425,12 @@ export function Timeline() {
               style={{ height: TRACK_HEIGHT }}
               onDragOver={(e) => e.preventDefault()}
               onDrop={(e) => onTrackDrop(e, track.id)}
+              onDoubleClick={(e) => {
+                if (track.kind !== "text" || e.target !== e.currentTarget) return;
+                const rect = containerRef.current!.getBoundingClientRect();
+                const x = e.clientX - rect.left + containerRef.current!.scrollLeft;
+                addTextClip(track.id, Math.max(0, pxToTime(x)));
+              }}
             >
               <div className="track-label">
                 <span>{track.name}</span>

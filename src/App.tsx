@@ -1,6 +1,7 @@
 import { useEffect } from "react";
 import { MediaBin } from "./components/MediaBin";
 import { TransitionsPanel } from "./components/TransitionsPanel";
+import { TextClipPanel } from "./components/TextClipPanel";
 import { Timeline } from "./components/Timeline";
 import { Preview } from "./components/Preview";
 import { ExportPanel } from "./components/ExportPanel";
@@ -21,7 +22,8 @@ function App() {
 
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
-      if ((e.target as HTMLElement)?.tagName === "INPUT") return;
+      const targetTag = (e.target as HTMLElement)?.tagName;
+      if (targetTag === "INPUT" || targetTag === "TEXTAREA" || targetTag === "SELECT") return;
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "z") {
         e.preventDefault();
         if (e.shiftKey) useEditorStore.getState().redo();
@@ -81,6 +83,7 @@ function App() {
         <div className="sidebar">
           <MediaBin />
           <TransitionsPanel />
+          <TextClipPanel />
         </div>
         <Preview />
       </div>

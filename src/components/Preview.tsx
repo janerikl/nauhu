@@ -1,4 +1,4 @@
-import { useEffect, useRef, type CSSProperties } from "react";
+import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { useEditorStore } from "../store/editorStore";
 import {
   type Clip,
@@ -8,7 +8,20 @@ import {
   findCrossTrackActivePair,
   getTransitionType,
 } from "../lib/timeline-math";
+import { EXPORT_HEIGHT } from "../lib/ffmpeg-export";
 import { Play, Pause, SkipBack } from "lucide-react";
+
+/** Fraction (0-1) visible for a text clip at `playhead`, ramping over its fadeIn/fadeOut windows. */
+function textClipOpacity(clip: Clip, playhead: number): number {
+  const style = clip.text;
+  if (!style) return 0;
+  const localT = playhead - clip.start;
+  const clipDur = clipEnd(clip) - clip.start;
+  let opacity = 1;
+  if (style.fadeIn > 0) opacity = Math.min(opacity, localT / style.fadeIn);
+  if (style.fadeOut > 0) opacity = Math.min(opacity, (clipDur - localT) / style.fadeOut);
+  return Math.max(0, Math.min(1, opacity));
+}
 
 const SEEK_EPSILON = 0.05;
 
@@ -96,6 +109,22 @@ export function Preview() {
   const setIsPlaying = useEditorStore((s) => s.setIsPlaying);
   const duration = useEditorStore((s) => s.duration());
   const transitions = useEditorStore((s) => s.transitions);
+
+  const previewCanvasRef = useRef<HTMLDivElement>(null);
+  const [previewHeightPx, setPreviewHeightPx] = useState(0);
+  useEffect(() => {
+    const el = previewCanvasRef.current;
+    if (!el) return;
+    const observer = new ResizeObserver((entries) => setPreviewHeightPx(entries[0].contentRect.height));
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
+  const textScale = previewHeightPx > 0 ? previewHeightPx / EXPORT_HEIGHT : 0;
+
+  const textTrackIds = new Set(tracks.filter((t) => t.kind === "text").map((t) => t.id));
+  const activeTextClips = clips.filter(
+    (c) => c.text && textTrackIds.has(c.trackId) && playhead >= c.start && playhead < clipEnd(c)
+  );
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const rafRef = useRef<number>(0);
@@ -424,7 +453,7 @@ export function Preview() {
 
   return (
     <div className="preview">
-      <div className="preview-canvas">
+      <div className="preview-canvas" ref={previewCanvasRef}>
         {activeClip ? (
           <>
             {isImageActive && activeSource && !inTransition && (
@@ -447,6 +476,34 @@ export function Preview() {
         ) : (
           <div className="preview-empty">No clip at playhead</div>
         )}
+        {textScale > 0 &&
+          activeTextClips.map((clip) => {
+            const style = clip.text!;
+            const opacity = textClipOpacity(clip, playhead);
+            const justify =
+              style.align === "left" ? "flex-start" : style.align === "right" ? "flex-end" : "center";
+            const alignSelf =
+              style.verticalAlign === "top" ? "flex-start" : style.verticalAlign === "bottom" ? "flex-end" : "center";
+            return (
+              <div
+                key={clip.id}
+                className="preview-text-overlay"
+                style={{ justifyContent: justify, alignItems: alignSelf }}
+              >
+                <span
+                  style={{
+                    color: style.color,
+                    fontFamily: style.fontFamily,
+                    fontSize: style.fontSize * textScale,
+                    textAlign: style.align,
+                    opacity,
+                  }}
+                >
+                  {style.content}
+                </span>
+              </div>
+            );
+          })}
       </div>
       <div className="preview-controls">
         <button
