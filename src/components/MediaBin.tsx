@@ -4,13 +4,13 @@ import { Film, Upload } from "lucide-react";
 
 const DEFAULT_IMAGE_DURATION = 5;
 
-function loadMediaDuration(url: string): Promise<number> {
+function loadMediaDuration(url: string, kind: "video" | "audio"): Promise<number> {
   return new Promise((resolve) => {
-    const v = document.createElement("video");
-    v.preload = "metadata";
-    v.src = url;
-    v.onloadedmetadata = () => resolve(v.duration);
-    v.onerror = () => resolve(0);
+    const el = document.createElement(kind === "audio" ? "audio" : "video");
+    el.preload = "metadata";
+    el.src = url;
+    el.onloadedmetadata = () => resolve(el.duration);
+    el.onerror = () => resolve(0);
   });
 }
 
@@ -29,7 +29,8 @@ export function MediaBin() {
           : file.type.startsWith("image")
             ? "image"
             : "video";
-        const duration = kind === "image" ? DEFAULT_IMAGE_DURATION : await loadMediaDuration(url);
+        const duration =
+          kind === "image" ? DEFAULT_IMAGE_DURATION : await loadMediaDuration(url, kind);
         addSource({
           id: `src-${Math.random().toString(36).slice(2, 9)}`,
           name: file.name,

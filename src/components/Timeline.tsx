@@ -12,6 +12,7 @@ import {
   type TransitionType,
 } from "../lib/timeline-math";
 import { Scissors, Trash2, Plus, X, ZoomIn, ZoomOut } from "lucide-react";
+import { Waveform } from "./Waveform";
 
 const TRACK_HEIGHT = 56;
 const RULER_HEIGHT = 24;
@@ -29,6 +30,7 @@ const ADJACENCY_GAP_PX = 10;
 export function Timeline() {
   const tracks = useEditorStore((s) => s.tracks);
   const clips = useEditorStore((s) => s.clips);
+  const sources = useEditorStore((s) => s.sources);
   const zoom = useEditorStore((s) => s.zoom);
   const playhead = useEditorStore((s) => s.playhead);
   const selectedClipId = useEditorStore((s) => s.selectedClipId);
@@ -455,6 +457,22 @@ export function Timeline() {
                       onMouseDown={(e) => onClipMouseDown(e, clip.id, "trim-in")}
                     />
                     <span className="clip-label">{clip.sourceName}</span>
+                    {(() => {
+                      const source = sources.find((s) => s.id === clip.sourceId);
+                      if (source?.kind !== "audio") return null;
+                      const clipWidth =
+                        timeToPx(clip.start + clipDuration(clip)) - timeToPx(clip.start);
+                      return (
+                        <Waveform
+                          sourceId={source.id}
+                          blob={source.blob}
+                          sourceIn={clip.sourceIn}
+                          sourceOut={clip.sourceOut}
+                          width={Math.max(4, clipWidth)}
+                          height={TRACK_HEIGHT - 8}
+                        />
+                      );
+                    })()}
                     <div
                       className="clip-handle clip-handle-right"
                       onMouseDown={(e) => onClipMouseDown(e, clip.id, "trim-out")}

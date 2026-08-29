@@ -545,6 +545,14 @@ body {
 .clip-handle-left { left: 0; }
 .clip-handle-right { right: 0; }
 
+.clip-waveform {
+  position: absolute;
+  left: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  pointer-events: none;
+}
+
 .timeline-transition {
   position: absolute;
   top: 4px;
