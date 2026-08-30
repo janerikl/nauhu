@@ -398,7 +398,14 @@ export function Preview() {
     if (!video) return;
     const onEnded = () => {
       const clip = activeClipRef.current;
-      if (clip) advancePastClip(clip);
+      if (!clip) return;
+      const clipSource = useEditorStore.getState().sources.find((s) => s.id === clip.sourceId);
+      // The active clip can already be a later image clip by the time this
+      // native event fires (the tick loop's own threshold check may have
+      // advanced past the video first) - only this <video> element's own
+      // clip should ever be advanced from its 'ended' event.
+      if (clipSource?.kind === "image") return;
+      advancePastClip(clip);
     };
     video.addEventListener("ended", onEnded);
     return () => video.removeEventListener("ended", onEnded);
@@ -449,7 +456,7 @@ export function Preview() {
         } else {
           setPlayhead(next);
         }
-      } else if (clip && video) {
+      } else if (clip && video && !clipIsImage) {
         if (video.currentTime >= clip.sourceOut - 0.02) {
           advancePastClip(clip);
           stalledSince = null;
