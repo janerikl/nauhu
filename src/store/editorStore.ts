@@ -82,6 +82,7 @@ interface EditorState {
   redo: () => void;
 
   addSource: (source: MediaSource) => void;
+  removeSource: (sourceId: string) => void;
   addTrack: (kind: "video" | "audio" | "text") => string;
   removeTrack: (trackId: string) => void;
   addClipToTimeline: (sourceId: string, trackId: string, atStart?: number) => void;
@@ -184,6 +185,16 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     set((s) => ({ sources: [...s.sources, source] }));
   },
 
+  removeSource: (sourceId) => {
+    get().pushHistory();
+    const source = get().sources.find((s) => s.id === sourceId);
+    if (source) URL.revokeObjectURL(source.url);
+    set((s) => ({
+      sources: s.sources.filter((src) => src.id !== sourceId),
+      clips: s.clips.filter((c) => c.sourceId !== sourceId),
+    }));
+  },
+
   addTrack: (kind) => {
     get().pushHistory();
     const id = `${kind}-${Math.random().toString(36).slice(2, 7)}`;
@@ -208,6 +219,14 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   addClipToTimeline: (sourceId, trackId, atStart) => {
     const source = get().sources.find((s) => s.id === sourceId);
     if (!source) return;
+    const requiredTrackKind = source.kind === "audio" ? "audio" : "video";
+    const targetTrack = get().tracks.find((t) => t.id === trackId);
+    const resolvedTrackId =
+      targetTrack?.kind === requiredTrackKind
+        ? trackId
+        : get().tracks.find((t) => t.kind === requiredTrackKind)?.id;
+    if (!resolvedTrackId) return;
+    trackId = resolvedTrackId;
     const existing = get().clips.filter((c) => c.trackId === trackId);
     const start =
       atStart ?? existing.reduce((max, c) => Math.max(max, c.start + (c.sourceOut - c.sourceIn)), 0);

@@ -14,6 +14,25 @@ import {
 
 const AUTOSAVE_DEBOUNCE_MS = 800;
 
+/**
+ * Resolves the project to open on startup, creating a default one only if
+ * none exists. Cached at module scope (not component/effect scope) so
+ * StrictMode's mount->cleanup->mount dev cycle can't race two concurrent
+ * callers into each creating their own "Untitled Project".
+ */
+let initialProjectPromise: Promise<string> | null = null;
+function resolveInitialProjectId(): Promise<string> {
+  if (!initialProjectPromise) {
+    initialProjectPromise = (async () => {
+      const lastActive = await getLastActiveProjectId();
+      if (lastActive) return lastActive;
+      const projects = await listProjects();
+      return projects[0]?.id ?? createProject("Untitled Project");
+    })();
+  }
+  return initialProjectPromise;
+}
+
 /** Persists whatever autosave debounce is in flight so a project switch never loses pending edits. */
 async function flushPendingSave(): Promise<void> {
   const s = useEditorStore.getState();
@@ -40,11 +59,7 @@ export function useProjectPersistence() {
     let cancelled = false;
     (async () => {
       try {
-        let id = await getLastActiveProjectId();
-        if (!id) {
-          const projects = await listProjects();
-          id = projects[0]?.id ?? (await createProject("Untitled Project"));
-        }
+        const id = await resolveInitialProjectId();
         const data = await loadProjectById(id);
         if (cancelled) return;
         if (data) {

@@ -17,6 +17,7 @@ export function ProjectMenu() {
   const [projects, setProjects] = useState<ProjectSummary[]>([]);
   const [renaming, setRenaming] = useState(false);
   const [draftName, setDraftName] = useState(projectName);
+  const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
   const rootRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -31,6 +32,10 @@ export function ProjectMenu() {
     };
     document.addEventListener("mousedown", onClickOutside);
     return () => document.removeEventListener("mousedown", onClickOutside);
+  }, [open]);
+
+  useEffect(() => {
+    if (!open) setPendingDeleteId(null);
   }, [open]);
 
   const refreshList = () => getProjectList().then(setProjects).catch(console.error);
@@ -49,11 +54,22 @@ export function ProjectMenu() {
     setOpen(false);
   };
 
-  const handleDelete = async (id: string, e: React.MouseEvent) => {
+  const handleDeleteClick = (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
-    if (!confirm("Delete this project? This cannot be undone.")) return;
-    await deleteProjectAndSwitchIfNeeded(id);
+    setPendingDeleteId(id);
+  };
+
+  const confirmDelete = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!pendingDeleteId) return;
+    await deleteProjectAndSwitchIfNeeded(pendingDeleteId);
+    setPendingDeleteId(null);
     refreshList();
+  };
+
+  const cancelDelete = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setPendingDeleteId(null);
   };
 
   const startRename = (e: React.MouseEvent) => {
@@ -105,14 +121,28 @@ export function ProjectMenu() {
               className={`project-menu-item project-menu-row${p.id === projectId ? " active" : ""}`}
               onClick={() => handleSwitch(p.id)}
             >
-              <span className="project-menu-row-name">{p.name}</span>
-              <button
-                className="project-menu-delete"
-                title="Delete project"
-                onClick={(e) => handleDelete(p.id, e)}
-              >
-                <Trash2 size={13} />
-              </button>
+              {pendingDeleteId === p.id ? (
+                <div className="project-menu-confirm">
+                  <span className="project-menu-confirm-label">Delete?</span>
+                  <button className="project-menu-confirm-yes" onClick={confirmDelete}>
+                    Yes
+                  </button>
+                  <button className="project-menu-confirm-no" onClick={cancelDelete}>
+                    No
+                  </button>
+                </div>
+              ) : (
+                <>
+                  <span className="project-menu-row-name">{p.name}</span>
+                  <button
+                    className="project-menu-delete"
+                    title="Delete project"
+                    onClick={(e) => handleDeleteClick(p.id, e)}
+                  >
+                    <Trash2 size={13} />
+                  </button>
+                </>
+              )}
             </div>
           ))}
         </div>
