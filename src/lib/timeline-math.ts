@@ -1,3 +1,15 @@
+export interface TextClipStyle {
+  content: string;
+  fontSize: number;
+  color: string;
+  fontFamily: string;
+  align: "left" | "center" | "right";
+  verticalAlign: "top" | "middle" | "bottom";
+  /** fade in/out duration, seconds (0 disables) */
+  fadeIn: number;
+  fadeOut: number;
+}
+
 export interface Clip {
   id: string;
   trackId: string;
@@ -10,6 +22,8 @@ export interface Clip {
   /** position on the timeline, seconds */
   start: number;
   color: string;
+  /** present only for clips on a "text" track - styling for the on-screen text overlay */
+  text?: TextClipStyle;
 }
 
 export interface Track {

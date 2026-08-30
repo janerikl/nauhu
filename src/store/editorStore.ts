@@ -4,6 +4,7 @@ import {
   type Track,
   type TransitionType,
   type TimelineTransition,
+  type TextClipStyle,
   moveClip as moveClipMath,
   trimClip as trimClipMath,
   splitClip as splitClipMath,
@@ -12,6 +13,18 @@ import {
   clipEnd,
   timelineDuration,
 } from "../lib/timeline-math";
+
+const DEFAULT_TEXT_STYLE: TextClipStyle = {
+  content: "Text",
+  fontSize: 64,
+  color: "#ffffff",
+  fontFamily: "sans-serif",
+  align: "center",
+  verticalAlign: "bottom",
+  fadeIn: 0.4,
+  fadeOut: 0.4,
+};
+const DEFAULT_TEXT_DURATION = 3;
 
 export interface MediaSource {
   id: string;
@@ -56,6 +69,7 @@ interface EditorState {
   isPlaying: boolean;
   selectedClipId: string | null;
   selectedTransitionId: string | null;
+  copiedClip: Clip | null;
   zoom: number; // pixels per second
   /** User-placed transitions - independent timeline objects, not derived from clip geometry. */
   transitions: TimelineTransition[];
@@ -68,13 +82,17 @@ interface EditorState {
   redo: () => void;
 
   addSource: (source: MediaSource) => void;
-  addTrack: (kind: "video" | "audio") => void;
+  addTrack: (kind: "video" | "audio" | "text") => string;
   removeTrack: (trackId: string) => void;
   addClipToTimeline: (sourceId: string, trackId: string, atStart?: number) => void;
+  addTextClip: (trackId: string, atStart?: number) => void;
+  updateTextClip: (clipId: string, patch: Partial<TextClipStyle>) => void;
   moveClip: (clipId: string, newStart: number, targetTrackId?: string) => void;
   trimClip: (clipId: string, edge: "in" | "out", time: number) => void;
   splitClipAtPlayhead: (clipId: string) => void;
   removeClip: (clipId: string) => void;
+  copySelectedClip: () => void;
+  pasteClip: () => void;
   addTransition: (input: {
     trackId: string;
     prevClipId: string;
@@ -113,6 +131,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   isPlaying: false,
   selectedClipId: null,
   selectedTransitionId: null,
+  copiedClip: null,
   zoom: 60,
   transitions: [],
 
@@ -167,14 +186,15 @@ export const useEditorStore = create<EditorState>((set, get) => ({
 
   addTrack: (kind) => {
     get().pushHistory();
+    const id = `${kind}-${Math.random().toString(36).slice(2, 7)}`;
     set((s) => {
       const countOfKind = s.tracks.filter((t) => t.kind === kind).length;
-      const id = `${kind}-${Math.random().toString(36).slice(2, 7)}`;
-      const label = kind === "video" ? "Video" : "Audio";
+      const label = kind === "video" ? "Video" : kind === "audio" ? "Audio" : "Text";
       return {
         tracks: [...s.tracks, { id, name: `${label} ${countOfKind + 1}`, kind }],
       };
     });
+    return id;
   },
 
   removeTrack: (trackId) => {
@@ -204,6 +224,35 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     get().pushHistory();
     set((s) => ({ clips: [...s.clips, clip] }));
   },
+
+  addTextClip: (trackId, atStart) => {
+    const existing = get().clips.filter((c) => c.trackId === trackId);
+    const start =
+      atStart ?? existing.reduce((max, c) => Math.max(max, c.start + (c.sourceOut - c.sourceIn)), 0);
+    const style = { ...DEFAULT_TEXT_STYLE };
+    const clip: Clip = {
+      id: `clip-${Math.random().toString(36).slice(2, 9)}`,
+      trackId,
+      sourceId: "text",
+      sourceName: style.content,
+      sourceIn: 0,
+      sourceOut: DEFAULT_TEXT_DURATION,
+      start,
+      color: nextColor(),
+      text: style,
+    };
+    get().pushHistory();
+    set((s) => ({ clips: [...s.clips, clip], selectedClipId: clip.id }));
+  },
+
+  updateTextClip: (clipId, patch) =>
+    set((s) => ({
+      clips: s.clips.map((c) =>
+        c.id === clipId && c.text
+          ? { ...c, text: { ...c.text, ...patch }, sourceName: patch.content ?? c.text.content }
+          : c
+      ),
+    })),
 
   // Not history-snapshotting: called on every mousemove while dragging a
   // clip. Callers snapshot once at drag-start instead.
@@ -243,6 +292,24 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       transitions: s.transitions.filter(
         (t) => t.prevClipId !== clipId && t.nextClipId !== clipId
       ),
+    }));
+  },
+
+  copySelectedClip: () =>
+    set((s) => {
+      const clip = s.clips.find((c) => c.id === s.selectedClipId);
+      return clip ? { copiedClip: clip } : s;
+    }),
+
+  pasteClip: () => {
+    const { copiedClip, playhead } = get();
+    if (!copiedClip) return;
+    const id = `clip-${Math.random().toString(36).slice(2, 9)}`;
+    const newClip: Clip = { ...copiedClip, id, start: playhead };
+    get().pushHistory();
+    set((s) => ({
+      clips: moveClipMath([...s.clips, newClip], id, playhead, copiedClip.trackId),
+      selectedClipId: id,
     }));
   },
 

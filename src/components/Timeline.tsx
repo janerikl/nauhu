@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type WheelEvent } from "react";
 import { useEditorStore } from "../store/editorStore";
 import {
   clipDuration,
@@ -11,7 +11,8 @@ import {
   type Clip,
   type TransitionType,
 } from "../lib/timeline-math";
-import { Scissors, Trash2, Plus, X } from "lucide-react";
+import { Scissors, Trash2, Plus, X, ZoomIn, ZoomOut } from "lucide-react";
+import { Waveform } from "./Waveform";
 
 const TRACK_HEIGHT = 56;
 const RULER_HEIGHT = 24;
@@ -29,6 +30,7 @@ const ADJACENCY_GAP_PX = 10;
 export function Timeline() {
   const tracks = useEditorStore((s) => s.tracks);
   const clips = useEditorStore((s) => s.clips);
+  const sources = useEditorStore((s) => s.sources);
   const zoom = useEditorStore((s) => s.zoom);
   const playhead = useEditorStore((s) => s.playhead);
   const selectedClipId = useEditorStore((s) => s.selectedClipId);
@@ -43,12 +45,14 @@ export function Timeline() {
   const addTrack = useEditorStore((s) => s.addTrack);
   const removeTrack = useEditorStore((s) => s.removeTrack);
   const addClipToTimeline = useEditorStore((s) => s.addClipToTimeline);
+  const addTextClip = useEditorStore((s) => s.addTextClip);
   const moveClip = useEditorStore((s) => s.moveClip);
   const trimClip = useEditorStore((s) => s.trimClip);
   const splitClipAtPlayhead = useEditorStore((s) => s.splitClipAtPlayhead);
   const removeClip = useEditorStore((s) => s.removeClip);
   const selectClip = useEditorStore((s) => s.selectClip);
   const setPlayhead = useEditorStore((s) => s.setPlayhead);
+  const setZoom = useEditorStore((s) => s.setZoom);
 
   const containerRef = useRef<HTMLDivElement>(null);
   const [drag, setDrag] = useState<{
@@ -327,6 +331,12 @@ export function Timeline() {
     addClipToTimeline(sourceId, trackId, Math.max(0, pxToTime(x)));
   };
 
+  const onWheelZoom = (e: WheelEvent<HTMLDivElement>) => {
+    if (!e.ctrlKey && !e.metaKey) return;
+    e.preventDefault();
+    setZoom(zoom * (e.deltaY < 0 ? 1.1 : 1 / 1.1));
+  };
+
   return (
     <div className="timeline">
       <div className="timeline-toolbar">
@@ -356,10 +366,35 @@ export function Timeline() {
         <button className="btn-icon" onClick={() => addTrack("audio")} title="Add audio track">
           <Plus size={14} /> Audio
         </button>
+        <button
+          className="btn-icon"
+          onClick={() => {
+            const trackId = addTrack("text");
+            addTextClip(trackId, playhead);
+          }}
+          title="Add text track"
+        >
+          <Plus size={14} /> Text
+        </button>
+        <span className="timeline-divider" />
+        <button
+          className="btn-icon"
+          onClick={() => setZoom(zoom / 1.25)}
+          title="Zoom out timeline"
+        >
+          <ZoomOut size={14} />
+        </button>
+        <button
+          className="btn-icon"
+          onClick={() => setZoom(zoom * 1.25)}
+          title="Zoom in timeline"
+        >
+          <ZoomIn size={14} />
+        </button>
         <span className="timeline-time">{playhead.toFixed(2)}s</span>
       </div>
 
-      <div className="timeline-scroll" ref={containerRef}>
+      <div className="timeline-scroll" ref={containerRef} onWheel={onWheelZoom}>
         <div className="timeline-inner" style={{ width: totalWidth }}>
           <div className="timeline-ruler" style={{ height: RULER_HEIGHT }} onMouseDown={startScrub}>
             {Array.from({ length: Math.ceil(totalWidth / zoom) }).map((_, i) => (
@@ -390,6 +425,12 @@ export function Timeline() {
               style={{ height: TRACK_HEIGHT }}
               onDragOver={(e) => e.preventDefault()}
               onDrop={(e) => onTrackDrop(e, track.id)}
+              onDoubleClick={(e) => {
+                if (track.kind !== "text" || e.target !== e.currentTarget) return;
+                const rect = containerRef.current!.getBoundingClientRect();
+                const x = e.clientX - rect.left + containerRef.current!.scrollLeft;
+                addTextClip(track.id, Math.max(0, pxToTime(x)));
+              }}
             >
               <div className="track-label">
                 <span>{track.name}</span>
@@ -433,6 +474,22 @@ export function Timeline() {
                       onMouseDown={(e) => onClipMouseDown(e, clip.id, "trim-in")}
                     />
                     <span className="clip-label">{clip.sourceName}</span>
+                    {(() => {
+                      const source = sources.find((s) => s.id === clip.sourceId);
+                      if (source?.kind !== "audio") return null;
+                      const clipWidth =
+                        timeToPx(clip.start + clipDuration(clip)) - timeToPx(clip.start);
+                      return (
+                        <Waveform
+                          sourceId={source.id}
+                          blob={source.blob}
+                          sourceIn={clip.sourceIn}
+                          sourceOut={clip.sourceOut}
+                          width={Math.max(4, clipWidth)}
+                          height={TRACK_HEIGHT - 8}
+                        />
+                      );
+                    })()}
                     <div
                       className="clip-handle clip-handle-right"
                       onMouseDown={(e) => onClipMouseDown(e, clip.id, "trim-out")}
