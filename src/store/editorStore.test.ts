@@ -208,3 +208,50 @@ describe("editorStore undo/redo", () => {
     expect(useEditorStore.getState().tracks).toEqual(before.tracks);
   });
 });
+
+describe("editorStore addClipToTimeline track kind routing", () => {
+  beforeEach(resetStore);
+
+  it("routes a video source dropped on the audio track to a video track instead", () => {
+    const { addSource, addClipToTimeline } = useEditorStore.getState();
+    addSource({ id: "src-1", name: "clip.mp4", url: "blob:fake", duration: 10, kind: "video", blob: new Blob() });
+
+    addClipToTimeline("src-1", "audio-1");
+
+    const clips = useEditorStore.getState().clips;
+    expect(clips).toHaveLength(1);
+    expect(clips[0].trackId).toBe("video-1");
+  });
+
+  it("routes an audio source dropped on the video track to the audio track instead", () => {
+    const { addSource, addClipToTimeline } = useEditorStore.getState();
+    addSource({ id: "src-1", name: "clip.mp3", url: "blob:fake", duration: 10, kind: "audio", blob: new Blob() });
+
+    addClipToTimeline("src-1", "video-1");
+
+    const clips = useEditorStore.getState().clips;
+    expect(clips).toHaveLength(1);
+    expect(clips[0].trackId).toBe("audio-1");
+  });
+
+  it("does nothing when no track of the required kind exists", () => {
+    const { addSource, addClipToTimeline } = useEditorStore.getState();
+    useEditorStore.setState({ tracks: [{ id: "audio-1", name: "Audio", kind: "audio" }] });
+    addSource({ id: "src-1", name: "clip.mp4", url: "blob:fake", duration: 10, kind: "video", blob: new Blob() });
+
+    addClipToTimeline("src-1", "audio-1");
+
+    expect(useEditorStore.getState().clips).toHaveLength(0);
+  });
+
+  it("keeps an image source on a video track", () => {
+    const { addSource, addClipToTimeline } = useEditorStore.getState();
+    addSource({ id: "src-1", name: "photo.png", url: "blob:fake", duration: 5, kind: "image", blob: new Blob() });
+
+    addClipToTimeline("src-1", "video-1");
+
+    const clips = useEditorStore.getState().clips;
+    expect(clips).toHaveLength(1);
+    expect(clips[0].trackId).toBe("video-1");
+  });
+});

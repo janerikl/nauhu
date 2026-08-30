@@ -24,6 +24,8 @@ function textClipOpacity(clip: Clip, playhead: number): number {
 }
 
 const SEEK_EPSILON = 0.05;
+/** video.readyState value meaning "has a decoded frame for the current position", per HTMLMediaElement. */
+const HAVE_CURRENT_DATA = 2;
 
 /** Draws `video`'s current frame into `ctx` fit-contain within the canvas, at `alpha` opacity and an optional horizontal pixel offset / uniform scale (used by slide/zoom). */
 function drawContain(
@@ -367,7 +369,16 @@ export function Preview() {
           // before currentTime ever reaches the threshold above: if it
           // hasn't moved for ~600ms while we still expect it to be playing,
           // treat this clip as done rather than staying stuck indefinitely.
-          if (video.currentTime === lastObservedTime) {
+          // A freshly-assigned .src reports HAVE_NOTHING/HAVE_METADATA (and
+          // currentTime === 0) for a little while before the browser has
+          // actually decoded a frame - that's normal startup latency, not a
+          // stall, so don't start (or count against) the stall clock until
+          // the video has at least a current frame available. Without this,
+          // a clip whose src just switched can get force-skipped to its end
+          // before it ever gets a chance to start playing.
+          if (video.readyState < HAVE_CURRENT_DATA) {
+            stalledSince = null;
+          } else if (video.currentTime === lastObservedTime) {
             if (stalledSince === null) stalledSince = now;
             else if (now - stalledSince > 600) {
               advancePastClip(clip);
