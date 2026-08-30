@@ -111,6 +111,16 @@ async function encodeClipSegment(
     ? ["-loop", "1", "-t", String(duration), "-i", inputName]
     : ["-ss", String(clip.sourceIn), "-t", String(duration), "-i", inputName];
 
+  // A clip's own fade-to-black (see Clip.fadeOutBlack) is baked in here as
+  // ffmpeg's native fade filter, timed relative to this segment's own
+  // 0-based duration - it has nothing to do with a second clip, unlike the
+  // (currently unimplemented in export) two-clip Transition blends.
+  const fadeOutBlack = clip.fadeOutBlack && clip.fadeOutBlack > 0 ? Math.min(clip.fadeOutBlack, duration) : 0;
+  const vf =
+    fadeOutBlack > 0
+      ? `${SCALE_FILTER},fade=t=out:st=${duration - fadeOutBlack}:d=${fadeOutBlack}:color=black`
+      : SCALE_FILTER;
+
   const silentAudioArgs = ["-f", "lavfi", "-i", `anullsrc=r=${AUDIO_SAMPLE_RATE}:cl=stereo`];
   const audioEncodeArgs = ["-c:a", "aac", "-ar", String(AUDIO_SAMPLE_RATE), "-ac", "2"];
 
@@ -118,7 +128,7 @@ async function encodeClipSegment(
     // Try to carry the clip's own embedded audio through first.
     const code = await ff.exec([
       ...args,
-      "-vf", SCALE_FILTER,
+      "-vf", vf,
       "-r", String(EXPORT_FPS),
       "-map", "0:v",
       "-map", "0:a",
@@ -135,7 +145,7 @@ async function encodeClipSegment(
   await ff.exec([
     ...args,
     ...silentAudioArgs,
-    "-vf", SCALE_FILTER,
+    "-vf", vf,
     "-r", String(EXPORT_FPS),
     "-map", "0:v",
     "-map", "1:a",

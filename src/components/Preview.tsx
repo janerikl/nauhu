@@ -23,6 +23,15 @@ function textClipOpacity(clip: Clip, playhead: number): number {
   return Math.max(0, Math.min(1, opacity));
 }
 
+/** Opacity (0-1) of a black overlay fading in over the last `clip.fadeOutBlack` seconds of `clip`, 0 if unset or not yet in that window. */
+function clipBlackOpacity(clip: Clip | undefined, playhead: number): number {
+  const fadeOutBlack = clip?.fadeOutBlack;
+  if (!clip || !fadeOutBlack) return 0;
+  const remaining = clipEnd(clip) - playhead;
+  if (remaining >= fadeOutBlack) return 0;
+  return Math.max(0, Math.min(1, 1 - remaining / fadeOutBlack));
+}
+
 const SEEK_EPSILON = 0.05;
 // The audio element isn't what drives `playhead` (the primary video is), so
 // its own clock naturally drifts a bit from the video-derived playhead even
@@ -629,6 +638,16 @@ export function Preview() {
           className="preview-video"
           style={{ display: inTransition ? "block" : "none" }}
         />
+        {(() => {
+          const blackOpacity = clipBlackOpacity(activeClip, playhead);
+          if (blackOpacity <= 0) return null;
+          return (
+            <div
+              className="preview-fade-black"
+              style={{ opacity: blackOpacity }}
+            />
+          );
+        })()}
         {!activeClip && <div className="preview-empty">No clip at playhead</div>}
         <audio ref={audioRef} style={{ display: "none" }} />
         {textScale > 0 &&

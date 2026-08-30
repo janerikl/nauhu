@@ -26,6 +26,8 @@ export interface Clip {
   text?: TextClipStyle;
   /** true when this video clip's own embedded audio has been split out onto a matching audio-track clip and should stay silent in playback/export */
   mutedVideo?: boolean;
+  /** seconds to fade to black over, ending at this clip's own end - only meaningful for the last clip on a track (nothing to transition into) */
+  fadeOutBlack?: number;
 }
 
 export interface Track {

@@ -46,6 +46,7 @@ export function Timeline() {
   const removeTrack = useEditorStore((s) => s.removeTrack);
   const addClipToTimeline = useEditorStore((s) => s.addClipToTimeline);
   const addTextClip = useEditorStore((s) => s.addTextClip);
+  const updateClip = useEditorStore((s) => s.updateClip);
   const moveClip = useEditorStore((s) => s.moveClip);
   const trimClip = useEditorStore((s) => s.trimClip);
   const splitClipAtPlayhead = useEditorStore((s) => s.splitClipAtPlayhead);
@@ -162,6 +163,34 @@ export function Timeline() {
   // relation to a transition that was placed elsewhere on the timeline.
   const hasTransitionFor = (prevClipId: string, nextClipId: string) =>
     transitions.some((t) => t.prevClipId === prevClipId && t.nextClipId === nextClipId);
+
+  // The last clip on each video track - the only place a fade-to-black at a
+  // clip's own tail makes sense, since anywhere else there's a following
+  // clip to transition into instead (handled by the two-clip Transition
+  // model above).
+  const lastClipByTrack = new Map<string, Clip>();
+  for (const track of tracks) {
+    if (track.kind !== "video") continue;
+    const onTrack = clips.filter((c) => c.trackId === track.id);
+    if (onTrack.length === 0) continue;
+    lastClipByTrack.set(
+      track.id,
+      onTrack.reduce((a, b) => (clipEnd(b) > clipEnd(a) ? b : a))
+    );
+  }
+
+  // Dropping "Fade to black" on a clip's own tail sets a per-clip fade-out
+  // (see Clip.fadeOutBlack) rather than creating a two-clip Transition -
+  // there's no incoming clip to blend with at the end of the timeline.
+  const onTailDrop = (e: React.DragEvent, clipId: string, maxDuration: number) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setDragOverKey(null);
+    const type = e.dataTransfer.getData(TRANSITION_DND_TYPE) as TransitionType;
+    if (type !== "fadeToBlack") return;
+    useEditorStore.getState().pushHistory();
+    updateClip(clipId, { fadeOutBlack: Math.min(DEFAULT_TRANSITION_OVERLAP, maxDuration) });
+  };
 
   // Dropping a transition on a clip boundary both nudges the two clips into
   // a real DEFAULT_TRANSITION_OVERLAP-sized overlap (so the effect is born
@@ -640,6 +669,53 @@ export function Timeline() {
                     />
                   );
                 })}
+              {(() => {
+                const lastClip = lastClipByTrack.get(track.id);
+                if (!lastClip) return null;
+                const key = `tail-fade-${lastClip.id}`;
+                if (lastClip.fadeOutBlack) {
+                  const fadeStart = clipEnd(lastClip) - lastClip.fadeOutBlack;
+                  return (
+                    <div
+                      key={key}
+                      className="timeline-transition tail-fade"
+                      style={{ left: timeToPx(fadeStart), width: Math.max(4, timeToPx(lastClip.fadeOutBlack)) }}
+                      onMouseDown={(e) => e.stopPropagation()}
+                      title={`Fade to black (${lastClip.fadeOutBlack.toFixed(2)}s)`}
+                    >
+                      <span className="timeline-transition-label">Fade to black</span>
+                      <button
+                        className="track-remove"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          useEditorStore.getState().pushHistory();
+                          updateClip(lastClip.id, { fadeOutBlack: undefined });
+                        }}
+                        title="Remove fade to black"
+                      >
+                        <X size={10} />
+                      </button>
+                    </div>
+                  );
+                }
+                const zoneDuration = Math.min(DEFAULT_TRANSITION_OVERLAP, clipDuration(lastClip));
+                const zoneStart = clipEnd(lastClip) - zoneDuration;
+                return (
+                  <div
+                    key={key}
+                    className={`add-transition-zone tail-fade-zone ${dragOverKey === key ? "drag-over" : ""}`}
+                    style={{ left: timeToPx(zoneStart), width: Math.max(4, timeToPx(zoneDuration)) }}
+                    title="Drag 'Fade to black' here to fade out at the end"
+                    onMouseDown={(e) => e.stopPropagation()}
+                    onDragOver={(e) => {
+                      e.preventDefault();
+                      setDragOverKey(key);
+                    }}
+                    onDragLeave={() => setDragOverKey((k) => (k === key ? null : k))}
+                    onDrop={(e) => onTailDrop(e, lastClip.id, zoneDuration)}
+                  />
+                );
+              })()}
             </div>
           ))}
         </div>
