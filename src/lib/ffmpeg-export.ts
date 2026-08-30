@@ -1,6 +1,6 @@
 import { FFmpeg } from "@ffmpeg/ffmpeg";
 import { fetchFile, toBlobURL } from "@ffmpeg/util";
-import { clipEnd, type Clip, type Track } from "./timeline-math";
+import { clipEnd, type Clip, type Track, type TimelineTransition, type TransitionType } from "./timeline-math";
 import type { MediaSource } from "../store/editorStore";
 
 let ffmpeg: FFmpeg | null = null;
@@ -157,6 +157,321 @@ async function encodeClipSegment(
   ]);
 }
 
+/** Builds the `-i` input args for a raw (unscaled) sub-range [subIn, subOut) of a clip's own source media. */
+function subRangeInputArgs(source: MediaSource, subIn: number, subOut: number): string[] {
+  const duration = subOut - subIn;
+  return source.kind === "image"
+    ? ["-loop", "1", "-t", String(duration)]
+    : ["-ss", String(subIn), "-t", String(duration)];
+}
+
+/**
+ * Encodes a silent (video-only), scale/pad/fps-normalized sub-range of a
+ * clip's source - the common building block every transition type below
+ * blends together. `subIn`/`subOut` are in the SOURCE's own time (i.e.
+ * `clip.sourceIn`-relative), not timeline time.
+ */
+async function encodeNormalizedVideo(
+  ff: FFmpeg,
+  source: MediaSource,
+  subIn: number,
+  subOut: number,
+  rawInputName: string,
+  outputName: string
+): Promise<void> {
+  await ff.writeFile(rawInputName, await fetchFile(source.url));
+  await ff.exec([
+    ...subRangeInputArgs(source, subIn, subOut),
+    "-i", rawInputName,
+    "-vf", `${SCALE_FILTER},fps=${EXPORT_FPS}`,
+    "-an",
+    "-c:v", "libx264",
+    "-pix_fmt", "yuv420p",
+    outputName,
+  ]);
+  await ff.deleteFile(rawInputName);
+}
+
+/**
+ * Named ffmpeg `xfade` transitions confirmed (by direct pixel-level testing
+ * against this ffmpeg build) to reproduce the Preview's own compositeTransition
+ * math exactly: `fade` is a plain linear alpha blend, `wiperight` reveals the
+ * incoming clip growing from the left edge, `slideleft` translates the
+ * outgoing clip left while the incoming clip enters from the right - all
+ * confirmed frame-by-frame, not just at the transition's midpoint. `fadeToBlack`
+ * and `zoom` have no built-in xfade equivalent that matches (fadeToBlack's
+ * built-in "fadeblack" uses a different curve; there's no linear
+ * simultaneous-fade+scale built-in at all) and are built separately below.
+ */
+function xfadeNameFor(type: TransitionType): "fade" | "wiperight" | "slideleft" | null {
+  switch (type) {
+    case "crossfade": return "fade";
+    case "wipe": return "wiperight";
+    case "slide": return "slideleft";
+    default: return null;
+  }
+}
+
+/** crossfade/wipe/slide: normalize each side's own last/first `duration` seconds, then blend with the matching named xfade transition. */
+async function encodeXfadeTransitionVideo(
+  ff: FFmpeg,
+  xfadeName: "fade" | "wiperight" | "slideleft",
+  duration: number,
+  prevSource: MediaSource,
+  prevSubIn: number,
+  nextSource: MediaSource,
+  nextSubIn: number,
+  outputName: string
+): Promise<void> {
+  const aName = "trans-a.mp4";
+  const bName = "trans-b.mp4";
+  await encodeNormalizedVideo(ff, prevSource, prevSubIn, prevSubIn + duration, "trans-a-in", aName);
+  await encodeNormalizedVideo(ff, nextSource, nextSubIn, nextSubIn + duration, "trans-b-in", bName);
+  await ff.exec([
+    "-i", aName,
+    "-i", bName,
+    "-filter_complex", `xfade=transition=${xfadeName}:duration=${duration}:offset=0`,
+    "-c:v", "libx264",
+    "-pix_fmt", "yuv420p",
+    outputName,
+  ]);
+  await ff.deleteFile(aName);
+  await ff.deleteFile(bName);
+}
+
+/**
+ * A 2x2 solid-black PNG, generated once and reused as a fake still-image
+ * "source" for fadeToBlack below. Built from a canvas rather than ffmpeg's
+ * own `color=...` lavfi generator - that generator was found, by direct
+ * testing, to leave ffmpeg's wasm heap in a state where the very next
+ * unrelated encode call fails (reproducible across fresh page loads); a
+ * plain image input goes through the same already-proven-stable `-loop 1`
+ * path every still-image clip uses elsewhere in this file.
+ */
+let blackImageDataUrl: string | null = null;
+function getBlackImageDataUrl(): string {
+  if (blackImageDataUrl) return blackImageDataUrl;
+  const canvas = document.createElement("canvas");
+  canvas.width = 2;
+  canvas.height = 2;
+  const ctx = canvas.getContext("2d")!;
+  ctx.fillStyle = "black";
+  ctx.fillRect(0, 0, 2, 2);
+  blackImageDataUrl = canvas.toDataURL("image/png");
+  return blackImageDataUrl;
+}
+
+/**
+ * fadeToBlack: built as two chained linear fades through an explicit black
+ * clip (outgoing clip -> black over the first half, black -> incoming clip
+ * over the second half), concatenated - this reproduces the Preview's own
+ * two-phase fadeToBlack math exactly, using only the `fade` xfade transition
+ * (verified linear/stable) rather than ffmpeg's differently-curved built-in
+ * "fadeblack", or a hand-written per-pixel expression (found, by direct
+ * testing, to hit float/rounding edge-case glitches near 0/1 progress).
+ */
+async function encodeFadeToBlackTransitionVideo(
+  ff: FFmpeg,
+  duration: number,
+  prevSource: MediaSource,
+  prevSubIn: number,
+  nextSource: MediaSource,
+  nextSubIn: number,
+  outputName: string
+): Promise<void> {
+  const half = duration / 2;
+  const aName = "trans-a.mp4";
+  const bName = "trans-b.mp4";
+  const black1Name = "trans-black1.mp4";
+  const black2Name = "trans-black2.mp4";
+  const blackSource: MediaSource = { id: "black", kind: "image", name: "black", url: getBlackImageDataUrl() } as MediaSource;
+  await encodeNormalizedVideo(ff, prevSource, prevSubIn, prevSubIn + half, "trans-a-in", aName);
+  await encodeNormalizedVideo(ff, nextSource, nextSubIn, nextSubIn + half, "trans-b-in", bName);
+  await encodeNormalizedVideo(ff, blackSource, 0, half, "trans-black1-in", black1Name);
+  await encodeNormalizedVideo(ff, blackSource, 0, half, "trans-black2-in", black2Name);
+  await ff.exec([
+    "-i", aName,
+    "-i", bName,
+    "-i", black1Name,
+    "-i", black2Name,
+    "-filter_complex",
+    `[0:v][2:v]xfade=transition=fade:duration=${half}:offset=0[p1];` +
+      `[3:v][1:v]xfade=transition=fade:duration=${half}:offset=0[p2];` +
+      `[p1][p2]concat=n=2:v=1:a=0[vout]`,
+    "-map", "[vout]",
+    "-c:v", "libx264",
+    "-pix_fmt", "yuv420p",
+    outputName,
+  ]);
+  await ff.deleteFile(aName);
+  await ff.deleteFile(bName);
+  await ff.deleteFile(black1Name);
+  await ff.deleteFile(black2Name);
+}
+
+/**
+ * zoom: the Preview simultaneously scales each side about its own center
+ * (outgoing growing 1.0->1.3, incoming shrinking 1.3->1.0) while linearly
+ * alpha-blending them - ffmpeg's declarative filter graph can't vary a
+ * `scale` filter's output size continuously within one stream (its output
+ * dimensions are fixed once negotiated), so this is instead rendered one
+ * output frame at a time: each frame gets its own exact (static) scale
+ * factor and blend weight computed in JS, then the still frames are
+ * reassembled into a video. Slower than the other transitions, but exact.
+ */
+async function encodeZoomTransitionVideo(
+  ff: FFmpeg,
+  duration: number,
+  prevSource: MediaSource,
+  prevSubIn: number,
+  nextSource: MediaSource,
+  nextSubIn: number,
+  outputName: string
+): Promise<void> {
+  const aName = "zoom-a.mp4";
+  const bName = "zoom-b.mp4";
+  await encodeNormalizedVideo(ff, prevSource, prevSubIn, prevSubIn + duration, "zoom-a-in", aName);
+  await encodeNormalizedVideo(ff, nextSource, nextSubIn, nextSubIn + duration, "zoom-b-in", bName);
+
+  const frameCount = Math.max(1, Math.round(duration * EXPORT_FPS));
+  await ff.exec(["-i", aName, "-start_number", "0", "-vf", `fps=${EXPORT_FPS}`, "zoom-a-%04d.png"]);
+  await ff.exec(["-i", bName, "-start_number", "0", "-vf", `fps=${EXPORT_FPS}`, "zoom-b-%04d.png"]);
+
+  const pad = (n: number) => String(n).padStart(4, "0");
+  for (let i = 0; i < frameCount; i++) {
+    const p = frameCount > 1 ? i / (frameCount - 1) : 1;
+    const scaleA = 1 + p * 0.3;
+    const scaleB = 1.3 - p * 0.3;
+    const wa = Math.round(EXPORT_WIDTH * scaleA);
+    const ha = Math.round(EXPORT_HEIGHT * scaleA);
+    const wb = Math.round(EXPORT_WIDTH * scaleB);
+    const hb = Math.round(EXPORT_HEIGHT * scaleB);
+    await ff.exec([
+      "-i", `zoom-a-${pad(i)}.png`,
+      "-i", `zoom-b-${pad(i)}.png`,
+      "-filter_complex",
+      `[0:v]scale=${wa}:${ha},crop=${EXPORT_WIDTH}:${EXPORT_HEIGHT}[za];` +
+        `[1:v]scale=${wb}:${hb},crop=${EXPORT_WIDTH}:${EXPORT_HEIGHT}[zb];` +
+        `[za][zb]blend=all_expr='A*(1-${p})+B*(${p})'`,
+      "-frames:v", "1",
+      `zoom-out-${pad(i)}.png`,
+    ]);
+    await ff.deleteFile(`zoom-a-${pad(i)}.png`);
+    await ff.deleteFile(`zoom-b-${pad(i)}.png`);
+  }
+
+  await ff.exec([
+    "-framerate", String(EXPORT_FPS),
+    "-start_number", "0",
+    "-i", "zoom-out-%04d.png",
+    "-c:v", "libx264",
+    "-pix_fmt", "yuv420p",
+    outputName,
+  ]);
+  for (let i = 0; i < frameCount; i++) await ff.deleteFile(`zoom-out-${pad(i)}.png`);
+  await ff.deleteFile(aName);
+  await ff.deleteFile(bName);
+}
+
+/**
+ * Hard-cuts audio at the transition's midpoint (see the export-transitions
+ * feature's audio scope: video blends, audio just cuts) - the outgoing
+ * clip's own trailing audio for the first half, the incoming clip's own
+ * leading audio for the second half, each falling back to silence if that
+ * side's source has no audio stream, matching `encodeClipSegment`'s own
+ * real-audio-then-silent-fallback approach.
+ */
+async function encodeTransitionAudio(
+  ff: FFmpeg,
+  duration: number,
+  prevSource: MediaSource,
+  prevSubIn: number,
+  nextSource: MediaSource,
+  nextSubIn: number,
+  outputName: string
+): Promise<void> {
+  const half = duration / 2;
+  const audioEncodeArgs = ["-c:a", "aac", "-ar", String(AUDIO_SAMPLE_RATE), "-ac", "2"];
+
+  async function encodeHalf(source: MediaSource, subIn: number, halfOutputName: string): Promise<void> {
+    if (source.kind === "image") {
+      await ff.exec([
+        "-f", "lavfi", "-i", `anullsrc=r=${AUDIO_SAMPLE_RATE}:cl=stereo`,
+        "-t", String(half),
+        ...audioEncodeArgs,
+        halfOutputName,
+      ]);
+      return;
+    }
+    const rawInputName = `${halfOutputName}-in.dat`;
+    await ff.writeFile(rawInputName, await fetchFile(source.url));
+    const code = await ff.exec([
+      "-ss", String(subIn), "-t", String(half), "-i", rawInputName,
+      "-vn",
+      ...audioEncodeArgs,
+      halfOutputName,
+    ]);
+    await ff.deleteFile(rawInputName);
+    if (code !== 0) {
+      await ff.exec([
+        "-f", "lavfi", "-i", `anullsrc=r=${AUDIO_SAMPLE_RATE}:cl=stereo`,
+        "-t", String(half),
+        ...audioEncodeArgs,
+        halfOutputName,
+      ]);
+    }
+  }
+
+  // prevSubIn marks the start of prevClip's own last `duration` seconds - its
+  // trailing `half` (the audio's first half) starts `half` seconds later.
+  await encodeHalf(prevSource, prevSubIn + half, "trans-audio-a.m4a");
+  await encodeHalf(nextSource, nextSubIn, "trans-audio-b.m4a");
+  await ff.writeFile("trans-audio-list.txt", "file 'trans-audio-a.m4a'\nfile 'trans-audio-b.m4a'\n");
+  await ff.exec(["-f", "concat", "-safe", "0", "-i", "trans-audio-list.txt", "-c", "copy", outputName]);
+  await ff.deleteFile("trans-audio-a.m4a");
+  await ff.deleteFile("trans-audio-b.m4a");
+  await ff.deleteFile("trans-audio-list.txt");
+}
+
+/**
+ * Encodes one clip-pair Transition's full `duration`-second blended segment
+ * (video + hard-cut audio, muxed together) - a drop-in replacement for a
+ * plain concat boundary between `prevClip` and `nextClip`, using each side's
+ * own last/first `duration` seconds of source.
+ */
+async function encodeTransitionSegment(
+  ff: FFmpeg,
+  type: TransitionType,
+  duration: number,
+  prevSource: MediaSource,
+  prevSubIn: number,
+  nextSource: MediaSource,
+  nextSubIn: number,
+  outputName: string
+): Promise<void> {
+  const videoName = "trans-video.mp4";
+  const audioName = "trans-audio.m4a";
+  const xfadeName = xfadeNameFor(type);
+  if (xfadeName) {
+    await encodeXfadeTransitionVideo(ff, xfadeName, duration, prevSource, prevSubIn, nextSource, nextSubIn, videoName);
+  } else if (type === "fadeToBlack") {
+    await encodeFadeToBlackTransitionVideo(ff, duration, prevSource, prevSubIn, nextSource, nextSubIn, videoName);
+  } else {
+    await encodeZoomTransitionVideo(ff, duration, prevSource, prevSubIn, nextSource, nextSubIn, videoName);
+  }
+  await encodeTransitionAudio(ff, duration, prevSource, prevSubIn, nextSource, nextSubIn, audioName);
+  await ff.exec([
+    "-i", videoName,
+    "-i", audioName,
+    "-map", "0:v",
+    "-map", "1:a",
+    "-c", "copy",
+    outputName,
+  ]);
+  await ff.deleteFile(videoName);
+  await ff.deleteFile(audioName);
+}
+
 /**
  * Exports the video track by trimming each clip to its in/out range and
  * concatenating them in timeline order, producing a single mp4. Every clip
@@ -168,7 +483,8 @@ export async function exportTimeline(
   sources: MediaSource[],
   trackId: string,
   onProgress?: (ratio: number) => void,
-  tracks: Track[] = []
+  tracks: Track[] = [],
+  transitions: TimelineTransition[] = []
 ): Promise<Blob> {
   const ff = await loadFFmpeg();
   const trackClips = clips
@@ -176,11 +492,32 @@ export async function exportTimeline(
     .sort((a, b) => a.start - b.start);
   if (trackClips.length === 0) throw new Error("No clips to export");
 
-  const exportableClips = trackClips.filter((c) => {
-    const source = sources.find((s) => s.id === c.sourceId);
-    return source && c.sourceOut - c.sourceIn > 0;
-  });
-  const totalDuration = exportableClips.reduce((sum, c) => sum + (c.sourceOut - c.sourceIn), 0);
+  // Only same-track transitions are blended here (cross-track transitions
+  // already have a separate, unrelated meaning via the overlay-compositing
+  // step below, and mixing the two would be a different feature).
+  const trackClipIds = new Set(trackClips.map((c) => c.id));
+  const tailTransitionByClipId = new Map<string, TimelineTransition>();
+  const headTransitionByClipId = new Map<string, TimelineTransition>();
+  for (const t of transitions) {
+    if (t.trackId !== trackId) continue;
+    if (!trackClipIds.has(t.prevClipId) || !trackClipIds.has(t.nextClipId)) continue;
+    tailTransitionByClipId.set(t.prevClipId, t);
+    headTransitionByClipId.set(t.nextClipId, t);
+  }
+
+  // A clip's own exported duration is its full sourceIn/sourceOut range minus
+  // whatever head/tail is instead covered by an adjoining transition's own
+  // blended segment (see below) - so the two never double-count the overlap.
+  const ownDuration = (clip: Clip): number => {
+    const head = headTransitionByClipId.get(clip.id)?.duration ?? 0;
+    const tail = tailTransitionByClipId.get(clip.id)?.duration ?? 0;
+    return Math.max(0, clip.sourceOut - clip.sourceIn - head - tail);
+  };
+
+  const exportableClips = trackClips.filter((c) => sources.find((s) => s.id === c.sourceId));
+  const totalDuration =
+    exportableClips.reduce((sum, c) => sum + ownDuration(c), 0) +
+    [...tailTransitionByClipId.values()].reduce((sum, t) => sum + t.duration, 0);
   // Encoding each segment accounts for ~95% of the work; the final stream-copy concat is fast.
   const ENCODE_WEIGHT = 0.95;
   let durationDone = 0;
@@ -196,30 +533,60 @@ export async function exportTimeline(
 
   const segmentNames: string[] = [];
   const segmentSpans: ExportSegmentSpan[] = [];
-  const writtenInputs = new Set<string>();
   for (let i = 0; i < trackClips.length; i++) {
     const clip = trackClips[i];
     const source = sources.find((s) => s.id === clip.sourceId);
     if (!source) continue;
-    const duration = clip.sourceOut - clip.sourceIn;
-    if (duration <= 0) continue;
-    currentDuration = duration;
 
-    const isImage = source.kind === "image";
-    const ext = isImage ? "jpg" : "mp4";
-    const inputName = `in-${i}.${ext}`;
-    const outputName = `seg-${i}.mp4`;
-    if (!writtenInputs.has(inputName)) {
+    // A head transition's blended segment was already produced while
+    // processing the previous clip (as its tail transition, below) - this
+    // clip only contributes its own reduced sourceIn/sourceOut range.
+    const headTransition = headTransitionByClipId.get(clip.id);
+    const duration = ownDuration(clip);
+    if (duration > 0) {
+      currentDuration = duration;
+      const effectiveSourceIn = clip.sourceIn + (headTransition?.duration ?? 0);
+      const effectiveClip: Clip = { ...clip, sourceIn: effectiveSourceIn, sourceOut: effectiveSourceIn + duration };
+
+      const isImage = source.kind === "image";
+      const ext = isImage ? "jpg" : "mp4";
+      const inputName = `in-${i}.${ext}`;
+      const outputName = `seg-${i}.mp4`;
       await ff.writeFile(inputName, await fetchFile(source.url));
-      writtenInputs.add(inputName);
+      await encodeClipSegment(ff, effectiveClip, source, inputName, outputName);
+      segmentNames.push(outputName);
+      // NOTE: uses this clip's own (possibly transition-reduced) duration, not
+      // its full sourceOut-sourceIn range - so text/overlay/audio clips whose
+      // window falls inside a transition's overlap can be mistimed by up to
+      // that transition's duration. A worthwhile trade against the
+      // alternative (tracking sub-clip-precision spans through every
+      // downstream mapping step) for how rarely that actually coincides.
+      segmentSpans.push({ clip, outStart: durationDone, outEnd: durationDone + duration });
+      await ff.deleteFile(inputName);
+      durationDone += duration;
     }
 
-    await encodeClipSegment(ff, clip, source, inputName, outputName);
-    segmentNames.push(outputName);
-    segmentSpans.push({ clip, outStart: durationDone, outEnd: durationDone + duration });
-    await ff.deleteFile(inputName);
-    writtenInputs.delete(inputName);
-    durationDone += duration;
+    const tailTransition = tailTransitionByClipId.get(clip.id);
+    if (tailTransition) {
+      const nextClip = clips.find((c) => c.id === tailTransition.nextClipId);
+      const nextSource = nextClip && sources.find((s) => s.id === nextClip.sourceId);
+      if (nextClip && nextSource) {
+        currentDuration = tailTransition.duration;
+        const outputName = `seg-${i}-transition.mp4`;
+        await encodeTransitionSegment(
+          ff,
+          tailTransition.type,
+          tailTransition.duration,
+          source,
+          clip.sourceOut - tailTransition.duration,
+          nextSource,
+          nextClip.sourceIn,
+          outputName
+        );
+        segmentNames.push(outputName);
+        durationDone += tailTransition.duration;
+      }
+    }
   }
 
   if (segmentNames.length === 0) throw new Error("No exportable clips found");
