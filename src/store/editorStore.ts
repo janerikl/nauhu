@@ -25,6 +25,7 @@ const DEFAULT_TEXT_STYLE: TextClipStyle = {
   fadeOut: 0.4,
 };
 const DEFAULT_TEXT_DURATION = 3;
+const DEFAULT_FOLDER = "Ungrouped";
 
 export interface MediaSource {
   id: string;
@@ -34,6 +35,7 @@ export interface MediaSource {
   kind: "video" | "audio" | "image";
   folder: string;
   thumbnail?: string;
+  addedAt: number;
   /** The raw file data, kept in memory so it can be persisted (e.g. to IndexedDB). */
   blob: Blob;
 }
@@ -88,7 +90,11 @@ interface EditorState {
   addSource: (source: MediaSource) => void;
   removeSource: (sourceId: string) => void;
   addFolder: (name: string) => void;
+  renameFolder: (oldName: string, newName: string) => void;
+  removeFolder: (name: string) => void;
   moveSourceToFolder: (sourceId: string, folder: string) => void;
+  renameSource: (sourceId: string, name: string) => void;
+  reorderSource: (sourceId: string, beforeId: string) => void;
   addTrack: (kind: "video" | "audio" | "text") => string;
   removeTrack: (trackId: string) => void;
   addClipToTimeline: (sourceId: string, trackId: string, atStart?: number) => void;
@@ -209,10 +215,52 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     set((s) => (s.folders.includes(trimmed) ? s : { folders: [...s.folders, trimmed] }));
   },
 
+  renameFolder: (oldName, newName) => {
+    const trimmed = newName.trim();
+    if (!trimmed || trimmed === oldName) return;
+    set((s) => {
+      if (s.folders.includes(trimmed)) return s;
+      return {
+        folders: s.folders.map((f) => (f === oldName ? trimmed : f)),
+        sources: s.sources.map((src) => (src.folder === oldName ? { ...src, folder: trimmed } : src)),
+      };
+    });
+  },
+
+  removeFolder: (name) => {
+    if (name === DEFAULT_FOLDER) return;
+    set((s) => ({
+      folders: s.folders.filter((f) => f !== name),
+      sources: s.sources.map((src) => (src.folder === name ? { ...src, folder: DEFAULT_FOLDER } : src)),
+    }));
+  },
+
   moveSourceToFolder: (sourceId, folder) =>
     set((s) => ({
       sources: s.sources.map((src) => (src.id === sourceId ? { ...src, folder } : src)),
     })),
+
+  renameSource: (sourceId, name) => {
+    const trimmed = name.trim();
+    if (!trimmed) return;
+    set((s) => ({
+      sources: s.sources.map((src) => (src.id === sourceId ? { ...src, name: trimmed } : src)),
+    }));
+  },
+
+  reorderSource: (sourceId, beforeId) => {
+    if (sourceId === beforeId) return;
+    set((s) => {
+      const moving = s.sources.find((src) => src.id === sourceId);
+      if (!moving) return s;
+      const rest = s.sources.filter((src) => src.id !== sourceId);
+      const targetIdx = rest.findIndex((src) => src.id === beforeId);
+      if (targetIdx === -1) return s;
+      const next = [...rest];
+      next.splice(targetIdx, 0, moving);
+      return { sources: next };
+    });
+  },
 
   addTrack: (kind) => {
     get().pushHistory();

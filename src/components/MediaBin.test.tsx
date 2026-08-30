@@ -52,6 +52,7 @@ describe("MediaBin", () => {
       duration: 5,
       kind: "image",
       folder: "Ungrouped",
+      addedAt: Date.now(),
       blob: new Blob(),
     });
     useEditorStore.getState().addSource({
@@ -61,6 +62,7 @@ describe("MediaBin", () => {
       duration: 10,
       kind: "video",
       folder: "Ungrouped",
+      addedAt: Date.now(),
       blob: new Blob(),
     });
     useEditorStore.getState().addSource({
@@ -70,6 +72,7 @@ describe("MediaBin", () => {
       duration: 20,
       kind: "audio",
       folder: "Ungrouped",
+      addedAt: Date.now(),
       blob: new Blob(),
     });
 
@@ -92,6 +95,7 @@ describe("MediaBin", () => {
       duration: 5,
       kind: "image",
       folder: "Intro",
+      addedAt: Date.now(),
       blob: new Blob(),
     });
     useEditorStore.getState().addSource({
@@ -101,6 +105,7 @@ describe("MediaBin", () => {
       duration: 5,
       kind: "image",
       folder: "Intro",
+      addedAt: Date.now(),
       blob: new Blob(),
     });
     useEditorStore.getState().addSource({
@@ -110,6 +115,7 @@ describe("MediaBin", () => {
       duration: 5,
       kind: "video",
       folder: "B-roll",
+      addedAt: Date.now(),
       blob: new Blob(),
     });
 
@@ -131,6 +137,7 @@ describe("MediaBin", () => {
       duration: 5,
       kind: "image",
       folder: "Intro",
+      addedAt: Date.now(),
       blob: new Blob(),
     });
 
@@ -153,6 +160,7 @@ describe("MediaBin", () => {
       duration: 5,
       kind: "image",
       folder: "Intro",
+      addedAt: Date.now(),
       blob: new Blob(),
     });
 
@@ -193,6 +201,7 @@ describe("MediaBin", () => {
       duration: 5,
       kind: "image",
       folder: "Ungrouped",
+      addedAt: Date.now(),
       blob: new Blob(),
     });
 

@@ -25,6 +25,7 @@ const makeSource = (overrides: Partial<MediaSource> = {}): MediaSource => ({
   duration: 10,
   kind: "video",
   folder: "Ungrouped",
+  addedAt: Date.now(),
   blob: new Blob(["fake video bytes"], { type: "video/mp4" }),
   ...overrides,
 });

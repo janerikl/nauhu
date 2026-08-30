@@ -19,6 +19,8 @@ interface PersistedSourceMeta {
   duration: number;
   kind: "video" | "audio" | "image";
   folder: string;
+  thumbnail?: string;
+  addedAt?: number;
 }
 
 export interface PersistedProject {
@@ -139,6 +141,8 @@ export async function saveProjectById(
       duration: s.duration,
       kind: s.kind,
       folder: s.folder,
+      thumbnail: s.thumbnail,
+      addedAt: s.addedAt,
     })),
     folders: state.folders,
     transitions: state.transitions,
@@ -173,7 +177,8 @@ export async function loadProjectById(id: string): Promise<(HydrateData & { id: 
     // so old projects get real image playback instead of a stalled <video>.
     const kind = meta.kind === "video" && blob.type.startsWith("image") ? "image" : meta.kind;
     const folder = meta.folder ?? "Ungrouped";
-    sources.push({ ...meta, kind, folder, blob, url: URL.createObjectURL(blob) });
+    const addedAt = meta.addedAt ?? project.updatedAt;
+    sources.push({ ...meta, kind, folder, addedAt, blob, url: URL.createObjectURL(blob) });
   }
 
   return {
