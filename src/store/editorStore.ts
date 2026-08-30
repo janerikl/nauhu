@@ -88,6 +88,7 @@ interface EditorState {
   addClipToTimeline: (sourceId: string, trackId: string, atStart?: number) => void;
   addTextClip: (trackId: string, atStart?: number) => void;
   updateTextClip: (clipId: string, patch: Partial<TextClipStyle>) => void;
+  updateClip: (clipId: string, patch: Partial<Pick<Clip, "fadeOutBlack">>) => void;
   moveClip: (clipId: string, newStart: number, targetTrackId?: string) => void;
   trimClip: (clipId: string, edge: "in" | "out", time: number) => void;
   splitClipAtPlayhead: (clipId: string) => void;
@@ -300,6 +301,9 @@ export const useEditorStore = create<EditorState>((set, get) => ({
           : c
       ),
     })),
+
+  updateClip: (clipId, patch) =>
+    set((s) => ({ clips: s.clips.map((c) => (c.id === clipId ? { ...c, ...patch } : c)) })),
 
   // Not history-snapshotting: called on every mousemove while dragging a
   // clip. Callers snapshot once at drag-start instead.

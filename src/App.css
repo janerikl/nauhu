@@ -412,6 +412,13 @@ body {
 
 .preview-empty { color: var(--text-dim); }
 
+.preview-fade-black {
+  position: absolute;
+  inset: 0;
+  background: black;
+  pointer-events: none;
+}
+
 .preview-text-overlay {
   position: absolute;
   inset: 0;
@@ -824,4 +831,19 @@ body {
   background: rgba(99, 102, 241, 0.25);
   border-color: rgba(99, 102, 241, 0.9);
   border-style: solid;
+}
+
+/* A one-sided fade-out at the tail of the last clip on a track - no second
+   clip involved, so it's visually distinct (solid black) from the
+   two-clip .timeline-transition blocks. */
+.timeline-transition.tail-fade {
+  background: linear-gradient(90deg, rgba(0, 0, 0, 0.2), #000);
+  flex-direction: row;
+  justify-content: space-between;
+  padding: 0 2px 0 6px;
+  cursor: default;
+}
+
+.timeline-transition.tail-fade .track-remove {
+  pointer-events: auto;
 }
