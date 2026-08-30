@@ -24,6 +24,7 @@ const makeSource = (overrides: Partial<MediaSource> = {}): MediaSource => ({
   url: "blob:fake-original",
   duration: 10,
   kind: "video",
+  folder: "Ungrouped",
   blob: new Blob(["fake video bytes"], { type: "video/mp4" }),
   ...overrides,
 });

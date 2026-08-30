@@ -18,6 +18,7 @@ interface PersistedSourceMeta {
   name: string;
   duration: number;
   kind: "video" | "audio" | "image";
+  folder: string;
 }
 
 export interface PersistedProject {
@@ -123,7 +124,13 @@ export async function saveProjectById(
     tracks: state.tracks,
     clips: state.clips,
     zoom: state.zoom,
-    sources: state.sources.map((s) => ({ id: s.id, name: s.name, duration: s.duration, kind: s.kind })),
+    sources: state.sources.map((s) => ({
+      id: s.id,
+      name: s.name,
+      duration: s.duration,
+      kind: s.kind,
+      folder: s.folder,
+    })),
     transitions: state.transitions,
   };
 
@@ -155,7 +162,8 @@ export async function loadProjectById(id: string): Promise<(HydrateData & { id: 
     // "video" (the only non-audio kind that existed then); fix that up here
     // so old projects get real image playback instead of a stalled <video>.
     const kind = meta.kind === "video" && blob.type.startsWith("image") ? "image" : meta.kind;
-    sources.push({ ...meta, kind, blob, url: URL.createObjectURL(blob) });
+    const folder = meta.folder ?? "Ungrouped";
+    sources.push({ ...meta, kind, folder, blob, url: URL.createObjectURL(blob) });
   }
 
   return {

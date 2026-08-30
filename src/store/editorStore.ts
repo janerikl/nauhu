@@ -32,6 +32,7 @@ export interface MediaSource {
   url: string;
   duration: number;
   kind: "video" | "audio" | "image";
+  folder: string;
   thumbnail?: string;
   /** The raw file data, kept in memory so it can be persisted (e.g. to IndexedDB). */
   blob: Blob;

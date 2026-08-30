@@ -293,6 +293,57 @@ body {
 
 .media-item:hover .media-item-remove { opacity: 1; }
 
+.media-import-prompt {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-elevated);
+}
+
+.media-import-prompt label {
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+.media-import-prompt input {
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text);
+  padding: 6px 8px;
+  font-size: 12px;
+}
+
+.media-import-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.media-folder { margin-bottom: 4px; }
+
+.media-folder-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  background: none;
+  border: none;
+  color: var(--text);
+  padding: 6px 4px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.media-folder-header:hover { color: var(--text); background: var(--bg-elevated); border-radius: 4px; }
+
+.media-folder-name { flex: 1; text-align: left; }
+
+.media-folder-count { color: var(--text-dim); font-size: 11px; font-family: var(--mono); }
+
 .spin { animation: spin 1s linear infinite; }
 @keyframes spin {
   from { transform: rotate(0deg); }

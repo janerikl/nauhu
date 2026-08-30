@@ -1,9 +1,22 @@
-import { useCallback, useRef, useState } from "react";
-import { useEditorStore } from "../store/editorStore";
-import { Film, Upload, Loader2, X } from "lucide-react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { useEditorStore, type MediaSource } from "../store/editorStore";
+import { Image, Video, Music, Upload, Loader2, X, ChevronRight, ChevronDown } from "lucide-react";
 import { ensurePlayableVideo } from "../lib/transcode";
 
 const DEFAULT_IMAGE_DURATION = 5;
+const DEFAULT_FOLDER = "Ungrouped";
+const COLLAPSED_FOLDERS_KEY = "media-bin-collapsed-folders";
+
+const KIND_ICONS = { video: Video, audio: Music, image: Image } as const;
+
+function loadCollapsedFolders(): Set<string> {
+  try {
+    const raw = localStorage.getItem(COLLAPSED_FOLDERS_KEY);
+    return raw ? new Set(JSON.parse(raw)) : new Set();
+  } catch {
+    return new Set();
+  }
+}
 
 const AUDIO_EXTENSIONS = [".mp3", ".m4a", ".aac", ".wav", ".ogg", ".oga", ".flac", ".weba", ".opus"];
 const IMAGE_EXTENSIONS = [".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp", ".svg"];
@@ -38,11 +51,21 @@ export function MediaBin() {
   const removeSource = useEditorStore((s) => s.removeSource);
   const inputRef = useRef<HTMLInputElement>(null);
   const [convertingNames, setConvertingNames] = useState<Set<string>>(new Set());
+  const [pendingFiles, setPendingFiles] = useState<File[] | null>(null);
+  const [folderChoice, setFolderChoice] = useState(DEFAULT_FOLDER);
+  const [collapsedFolders, setCollapsedFolders] = useState<Set<string>>(loadCollapsedFolders);
 
-  const handleFiles = useCallback(
-    async (files: FileList | null) => {
-      if (!files) return;
-      for (const file of Array.from(files)) {
+  useEffect(() => {
+    localStorage.setItem(COLLAPSED_FOLDERS_KEY, JSON.stringify(Array.from(collapsedFolders)));
+  }, [collapsedFolders]);
+
+  const existingFolders = Array.from(new Set(sources.map((s) => s.folder))).sort((a, b) =>
+    a.localeCompare(b)
+  );
+
+  const importFiles = useCallback(
+    async (files: File[], folder: string) => {
+      for (const file of files) {
         const kind = detectMediaKind(file);
 
         let playableFile: File | Blob = file;
@@ -66,6 +89,7 @@ export function MediaBin() {
           url,
           duration,
           kind,
+          folder,
           blob: playableFile,
         });
       }
@@ -73,9 +97,39 @@ export function MediaBin() {
     [addSource]
   );
 
+  const handleFiles = useCallback((files: FileList | null) => {
+    if (!files || files.length === 0) return;
+    setPendingFiles(Array.from(files));
+    setFolderChoice(DEFAULT_FOLDER);
+  }, []);
+
+  const confirmImport = () => {
+    if (!pendingFiles) return;
+    const folder = folderChoice.trim() || DEFAULT_FOLDER;
+    importFiles(pendingFiles, folder);
+    setPendingFiles(null);
+  };
+
+  const toggleFolder = (folder: string) => {
+    setCollapsedFolders((prev) => {
+      const next = new Set(prev);
+      if (next.has(folder)) next.delete(folder);
+      else next.add(folder);
+      return next;
+    });
+  };
+
   const onDragStart = (e: React.DragEvent, sourceId: string) => {
     e.dataTransfer.setData("application/x-source-id", sourceId);
   };
+
+  const groups = new Map<string, MediaSource[]>();
+  for (const s of sources) {
+    const list = groups.get(s.folder) ?? [];
+    list.push(s);
+    groups.set(s.folder, list);
+  }
+  const folderNames = Array.from(groups.keys()).sort((a, b) => a.localeCompare(b));
 
   return (
     <div className="media-bin">
@@ -93,6 +147,34 @@ export function MediaBin() {
           onChange={(e) => handleFiles(e.target.files)}
         />
       </div>
+      {pendingFiles && (
+        <div className="media-import-prompt">
+          <label htmlFor="media-folder-input">
+            Add {pendingFiles.length} file{pendingFiles.length > 1 ? "s" : ""} to folder:
+          </label>
+          <input
+            id="media-folder-input"
+            list="media-folder-options"
+            value={folderChoice}
+            onChange={(e) => setFolderChoice(e.target.value)}
+            placeholder={DEFAULT_FOLDER}
+            autoFocus
+          />
+          <datalist id="media-folder-options">
+            {existingFolders.map((f) => (
+              <option key={f} value={f} />
+            ))}
+          </datalist>
+          <div className="media-import-actions">
+            <button className="btn-icon" onClick={() => setPendingFiles(null)}>
+              Cancel
+            </button>
+            <button className="btn-primary" onClick={confirmImport}>
+              Add
+            </button>
+          </div>
+        </div>
+      )}
       <div
         className="media-bin-drop"
         onDragOver={(e) => e.preventDefault()}
@@ -112,29 +194,46 @@ export function MediaBin() {
                 <span className="media-item-duration">Converting…</span>
               </div>
             ))}
-            {sources.map((s) => (
-            <div
-              key={s.id}
-              className="media-item"
-              draggable
-              onDragStart={(e) => onDragStart(e, s.id)}
-              title={`Drag onto timeline\n${s.name}`}
-            >
-              <Film size={14} />
-              <span className="media-item-name">{s.name}</span>
-              <span className="media-item-duration">{s.duration.toFixed(1)}s</span>
-              <button
-                className="btn-icon media-item-remove"
-                title="Remove from media bin"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  removeSource(s.id);
-                }}
-              >
-                <X size={12} />
-              </button>
-            </div>
-            ))}
+            {folderNames.map((folder) => {
+              const collapsed = collapsedFolders.has(folder);
+              const items = groups.get(folder)!;
+              return (
+                <div key={folder} className="media-folder">
+                  <button className="media-folder-header" onClick={() => toggleFolder(folder)}>
+                    {collapsed ? <ChevronRight size={14} /> : <ChevronDown size={14} />}
+                    <span className="media-folder-name">{folder}</span>
+                    <span className="media-folder-count">{items.length}</span>
+                  </button>
+                  {!collapsed &&
+                    items.map((s) => {
+                      const Icon = KIND_ICONS[s.kind];
+                      return (
+                        <div
+                          key={s.id}
+                          className="media-item"
+                          draggable
+                          onDragStart={(e) => onDragStart(e, s.id)}
+                          title={`Drag onto timeline\n${s.name}`}
+                        >
+                          <Icon size={14} />
+                          <span className="media-item-name">{s.name}</span>
+                          <span className="media-item-duration">{s.duration.toFixed(1)}s</span>
+                          <button
+                            className="btn-icon media-item-remove"
+                            title="Remove from media bin"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              removeSource(s.id);
+                            }}
+                          >
+                            <X size={12} />
+                          </button>
+                        </div>
+                      );
+                    })}
+                </div>
+              );
+            })}
           </>
         )}
       </div>
