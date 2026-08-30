@@ -7,6 +7,7 @@ export function ExportPanel() {
   const clips = useEditorStore((s) => s.clips);
   const sources = useEditorStore((s) => s.sources);
   const tracks = useEditorStore((s) => s.tracks);
+  const transitions = useEditorStore((s) => s.transitions);
   const [status, setStatus] = useState<"idle" | "loading" | "exporting" | "done" | "error">("idle");
   const [progress, setProgress] = useState(0);
   const [error, setError] = useState("");
@@ -48,7 +49,7 @@ export function ExportPanel() {
     setProgress(0);
     try {
       setStatus("exporting");
-      const blob = await exportTimeline(clips, sources, exportTrackId, handleProgress, tracks);
+      const blob = await exportTimeline(clips, sources, exportTrackId, handleProgress, tracks, transitions);
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
