@@ -90,11 +90,24 @@ export function timelineDuration(clips: Clip[]): number {
 const MAX_OVERLAP_FRACTION = 0.9;
 
 /**
+ * An overlap with a same-track neighbor at or below this many seconds is
+ * treated as drag/snap imprecision rather than an intentional transition,
+ * and is snapped flush instead of being left as a partial overlap. Same-track
+ * overlaps put both clips into the transition-rendering path (see
+ * `findActivePair`), so an unintentional sliver of overlap silently breaks
+ * a plain hard cut - it stops the incoming clip from ever becoming the sole
+ * active clip cleanly.
+ */
+const MIN_MEANINGFUL_OVERLAP = 0.25;
+
+/**
  * Move a clip to a new start time (clamped to >= 0) and, optionally, onto a
  * different track. Clips may overlap a neighbor (the overlapped region
  * becomes a transition, see `getOverlaps`) up to MAX_OVERLAP_FRACTION of the
  * shorter clip's duration; beyond that the move is clamped so it can't pass
- * through a neighbor entirely.
+ * through a neighbor entirely. An overlap of MIN_MEANINGFUL_OVERLAP seconds
+ * or less is snapped flush rather than left in place - see
+ * MIN_MEANINGFUL_OVERLAP.
  */
 export function moveClip(
   clips: Clip[],
@@ -119,6 +132,15 @@ export function moveClip(
       resolvedStart >= s.start
         ? clipEnd(s) - maxOverlap
         : s.start + maxOverlap - duration;
+  }
+  resolvedStart = Math.max(0, resolvedStart);
+
+  for (const s of siblings) {
+    const proposedEnd = resolvedStart + duration;
+    const overlap = Math.min(proposedEnd, clipEnd(s)) - Math.max(resolvedStart, s.start);
+    if (overlap <= 0 || overlap > MIN_MEANINGFUL_OVERLAP) continue;
+
+    resolvedStart = resolvedStart >= s.start ? clipEnd(s) : s.start - duration;
   }
   resolvedStart = Math.max(0, resolvedStart);
 
