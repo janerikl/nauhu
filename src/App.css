@@ -340,6 +340,8 @@ body {
 
 .media-folder-header:hover { color: var(--text); background: var(--bg-elevated); border-radius: 4px; }
 
+.media-folder-header-dragover { background: var(--bg-elevated); outline: 1px dashed var(--accent); border-radius: 4px; }
+
 .media-folder-name { flex: 1; text-align: left; }
 
 .media-folder-count { color: var(--text-dim); font-size: 11px; font-family: var(--mono); }

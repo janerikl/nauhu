@@ -29,6 +29,7 @@ export interface PersistedProject {
   clips: Clip[];
   zoom: number;
   sources: PersistedSourceMeta[];
+  folders: string[];
   transitions: TimelineTransition[];
 }
 
@@ -103,6 +104,7 @@ export async function createProject(name: string): Promise<string> {
     clips: [],
     zoom: 60,
     sources: [],
+    folders: [],
     transitions: [],
   };
   await db.put(PROJECTS_STORE, project);
@@ -113,7 +115,14 @@ export async function createProject(name: string): Promise<string> {
 export async function saveProjectById(
   id: string,
   name: string,
-  state: { tracks: Track[]; clips: Clip[]; zoom: number; sources: MediaSource[]; transitions: TimelineTransition[] }
+  state: {
+    tracks: Track[];
+    clips: Clip[];
+    zoom: number;
+    sources: MediaSource[];
+    folders: string[];
+    transitions: TimelineTransition[];
+  }
 ): Promise<void> {
   const db = await getDB();
 
@@ -131,6 +140,7 @@ export async function saveProjectById(
       kind: s.kind,
       folder: s.folder,
     })),
+    folders: state.folders,
     transitions: state.transitions,
   };
 
@@ -173,6 +183,7 @@ export async function loadProjectById(id: string): Promise<(HydrateData & { id: 
     clips: project.clips,
     zoom: project.zoom,
     sources,
+    folders: project.folders ?? [],
     transitions: project.transitions ?? [],
   };
 }

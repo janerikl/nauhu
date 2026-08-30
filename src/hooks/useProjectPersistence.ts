@@ -42,6 +42,7 @@ async function flushPendingSave(): Promise<void> {
     clips: s.clips,
     zoom: s.zoom,
     sources: s.sources,
+    folders: s.folders,
     transitions: s.transitions,
   });
 }
@@ -86,6 +87,7 @@ export function useProjectPersistence() {
         state.clips !== prev.clips ||
         state.tracks !== prev.tracks ||
         state.sources !== prev.sources ||
+        state.folders !== prev.folders ||
         state.zoom !== prev.zoom ||
         state.projectName !== prev.projectName ||
         state.transitions !== prev.transitions;

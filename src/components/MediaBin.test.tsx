@@ -24,6 +24,7 @@ function makeMemoryStorage(): Storage {
 const resetStore = () => {
   useEditorStore.setState({
     sources: [],
+    folders: [],
     tracks: [
       { id: "video-1", name: "Video", kind: "video" },
       { id: "audio-1", name: "Audio", kind: "audio" },
@@ -162,5 +163,53 @@ describe("MediaBin", () => {
 
     render(<MediaBin />);
     expect(screen.queryByText("a.png")).toBeNull();
+  });
+
+  it("creates a new empty folder via the folder button without importing anything", () => {
+    render(<MediaBin />);
+
+    fireEvent.click(screen.getByTitle("New folder"));
+    fireEvent.change(screen.getByPlaceholderText("New folder"), { target: { value: "Interviews" } });
+    fireEvent.click(screen.getByText("Create"));
+
+    expect(screen.getByText("Interviews")).toBeTruthy();
+    const header = screen.getByText("Interviews").closest(".media-folder-header")!;
+    expect(header.textContent).toContain("0");
+    expect(useEditorStore.getState().sources).toHaveLength(0);
+  });
+
+  it("does not prompt for a folder when files are imported or dropped", () => {
+    render(<MediaBin />);
+    expect(screen.queryByLabelText(/Add \d+ file/)).toBeNull();
+    expect(screen.queryByText(/Add \d+ file/)).toBeNull();
+  });
+
+  it("moves a media item into a folder when dragged onto its header", () => {
+    useEditorStore.getState().addFolder("Interviews");
+    useEditorStore.getState().addSource({
+      id: "src-1",
+      name: "a.png",
+      url: "blob:fake",
+      duration: 5,
+      kind: "image",
+      folder: "Ungrouped",
+      blob: new Blob(),
+    });
+
+    render(<MediaBin />);
+
+    const item = screen.getByText("a.png").closest(".media-item")!;
+    const targetHeader = screen.getByText("Interviews").closest(".media-folder-header")!;
+
+    const data = new Map<string, string>();
+    const dataTransfer = {
+      setData: (type: string, value: string) => void data.set(type, value),
+      getData: (type: string) => data.get(type) ?? "",
+    } as unknown as DataTransfer;
+
+    fireEvent.dragStart(item, { dataTransfer });
+    fireEvent.drop(targetHeader, { dataTransfer });
+
+    expect(useEditorStore.getState().sources[0].folder).toBe("Interviews");
   });
 });

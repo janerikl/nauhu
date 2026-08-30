@@ -4,6 +4,7 @@ import { useEditorStore } from "./editorStore";
 const resetStore = () => {
   useEditorStore.setState({
     sources: [],
+    folders: [],
     tracks: [
       { id: "video-1", name: "Video", kind: "video" },
       { id: "audio-1", name: "Audio", kind: "audio" },

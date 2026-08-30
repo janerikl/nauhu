@@ -42,6 +42,7 @@ export interface HydrateData {
   tracks: Track[];
   clips: Clip[];
   sources: MediaSource[];
+  folders?: string[];
   zoom: number;
   transitions?: TimelineTransition[];
 }
@@ -64,6 +65,8 @@ interface HistorySnapshot {
 
 interface EditorState {
   sources: MediaSource[];
+  /** User-created folder names, independent of which sources (if any) currently sit in them - lets a folder exist empty. */
+  folders: string[];
   tracks: Track[];
   clips: Clip[];
   playhead: number;
@@ -84,6 +87,8 @@ interface EditorState {
 
   addSource: (source: MediaSource) => void;
   removeSource: (sourceId: string) => void;
+  addFolder: (name: string) => void;
+  moveSourceToFolder: (sourceId: string, folder: string) => void;
   addTrack: (kind: "video" | "audio" | "text") => string;
   removeTrack: (trackId: string) => void;
   addClipToTimeline: (sourceId: string, trackId: string, atStart?: number) => void;
@@ -125,6 +130,7 @@ interface EditorState {
 
 export const useEditorStore = create<EditorState>((set, get) => ({
   sources: [],
+  folders: [],
   tracks: [
     { id: "video-1", name: "Video", kind: "video" },
     { id: "audio-1", name: "Audio", kind: "audio" },
@@ -196,6 +202,17 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       clips: s.clips.filter((c) => c.sourceId !== sourceId),
     }));
   },
+
+  addFolder: (name) => {
+    const trimmed = name.trim();
+    if (!trimmed) return;
+    set((s) => (s.folders.includes(trimmed) ? s : { folders: [...s.folders, trimmed] }));
+  },
+
+  moveSourceToFolder: (sourceId, folder) =>
+    set((s) => ({
+      sources: s.sources.map((src) => (src.id === sourceId ? { ...src, folder } : src)),
+    })),
 
   addTrack: (kind) => {
     get().pushHistory();
@@ -411,6 +428,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       tracks: data.tracks,
       clips: data.clips,
       sources: data.sources,
+      folders: data.folders ?? [],
       zoom: data.zoom,
       playhead: 0,
       isPlaying: false,
