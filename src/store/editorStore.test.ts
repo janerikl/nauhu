@@ -25,7 +25,7 @@ describe("editorStore splitClipAtPlayhead", () => {
     const { addSource, addClipToTimeline, splitClipAtPlayhead, setPlayhead } =
       useEditorStore.getState();
 
-    addSource({ id: "src-1", name: "clip.mp4", url: "blob:fake", duration: 10, kind: "video", blob: new Blob() });
+    addSource({ id: "src-1", name: "photo.png", url: "blob:fake", duration: 10, kind: "image", blob: new Blob() });
     addClipToTimeline("src-1", "video-1");
 
     const originalId = useEditorStore.getState().clips[0].id;
@@ -105,7 +105,7 @@ describe("editorStore track management", () => {
     addTrack("video");
     const newTrackId = useEditorStore.getState().tracks.at(-1)!.id;
 
-    addSource({ id: "src-1", name: "clip.mp4", url: "blob:fake", duration: 5, kind: "video", blob: new Blob() });
+    addSource({ id: "src-1", name: "photo.png", url: "blob:fake", duration: 5, kind: "image", blob: new Blob() });
     addClipToTimeline("src-1", newTrackId);
     expect(useEditorStore.getState().clips).toHaveLength(1);
 
@@ -120,7 +120,7 @@ describe("editorStore undo/redo", () => {
 
   it("undoes and redoes adding a clip", () => {
     const { addSource, addClipToTimeline, undo, redo } = useEditorStore.getState();
-    addSource({ id: "src-1", name: "clip.mp4", url: "blob:fake", duration: 10, kind: "video", blob: new Blob() });
+    addSource({ id: "src-1", name: "photo.png", url: "blob:fake", duration: 10, kind: "image", blob: new Blob() });
     addClipToTimeline("src-1", "video-1");
     expect(useEditorStore.getState().clips).toHaveLength(1);
 
@@ -135,7 +135,7 @@ describe("editorStore undo/redo", () => {
     const { addTrack, addSource, addClipToTimeline, removeTrack, undo } = useEditorStore.getState();
     addTrack("video");
     const newTrackId = useEditorStore.getState().tracks.at(-1)!.id;
-    addSource({ id: "src-1", name: "clip.mp4", url: "blob:fake", duration: 5, kind: "video", blob: new Blob() });
+    addSource({ id: "src-1", name: "photo.png", url: "blob:fake", duration: 5, kind: "image", blob: new Blob() });
     addClipToTimeline("src-1", newTrackId);
 
     removeTrack(newTrackId);
@@ -150,7 +150,7 @@ describe("editorStore undo/redo", () => {
   it("steps back through multiple actions in order and forward again", () => {
     const { addSource, addClipToTimeline, splitClipAtPlayhead, setPlayhead, undo, redo } =
       useEditorStore.getState();
-    addSource({ id: "src-1", name: "clip.mp4", url: "blob:fake", duration: 10, kind: "video", blob: new Blob() });
+    addSource({ id: "src-1", name: "photo.png", url: "blob:fake", duration: 10, kind: "image", blob: new Blob() });
     addClipToTimeline("src-1", "video-1");
     const clipId = useEditorStore.getState().clips[0].id;
     setPlayhead(4);
@@ -219,8 +219,8 @@ describe("editorStore addClipToTimeline track kind routing", () => {
     addClipToTimeline("src-1", "audio-1");
 
     const clips = useEditorStore.getState().clips;
-    expect(clips).toHaveLength(1);
-    expect(clips[0].trackId).toBe("video-1");
+    const videoClip = clips.find((c) => c.trackId === "video-1");
+    expect(videoClip).toBeDefined();
   });
 
   it("routes an audio source dropped on the video track to the audio track instead", () => {
@@ -253,5 +253,52 @@ describe("editorStore addClipToTimeline track kind routing", () => {
     const clips = useEditorStore.getState().clips;
     expect(clips).toHaveLength(1);
     expect(clips[0].trackId).toBe("video-1");
+  });
+});
+
+describe("editorStore addClipToTimeline video audio split", () => {
+  beforeEach(resetStore);
+
+  it("splits a video clip's audio onto the audio track and mutes the video clip", () => {
+    const { addSource, addClipToTimeline } = useEditorStore.getState();
+    addSource({ id: "src-1", name: "clip.mp4", url: "blob:fake", duration: 10, kind: "video", blob: new Blob() });
+
+    addClipToTimeline("src-1", "video-1", 2);
+
+    const clips = useEditorStore.getState().clips;
+    expect(clips).toHaveLength(2);
+
+    const videoClip = clips.find((c) => c.trackId === "video-1")!;
+    const audioClip = clips.find((c) => c.trackId === "audio-1")!;
+    expect(videoClip.mutedVideo).toBe(true);
+    expect(audioClip.mutedVideo).toBeFalsy();
+    expect(audioClip.sourceId).toBe("src-1");
+    expect(audioClip.start).toBe(2);
+    expect(audioClip.sourceIn).toBe(videoClip.sourceIn);
+    expect(audioClip.sourceOut).toBe(videoClip.sourceOut);
+  });
+
+  it("creates an audio track for the split when none exists", () => {
+    const { addSource, addClipToTimeline } = useEditorStore.getState();
+    useEditorStore.setState({ tracks: [{ id: "video-1", name: "Video", kind: "video" }] });
+    addSource({ id: "src-1", name: "clip.mp4", url: "blob:fake", duration: 10, kind: "video", blob: new Blob() });
+
+    addClipToTimeline("src-1", "video-1");
+
+    const state = useEditorStore.getState();
+    const audioTrack = state.tracks.find((t) => t.kind === "audio");
+    expect(audioTrack).toBeDefined();
+    expect(state.clips.some((c) => c.trackId === audioTrack!.id)).toBe(true);
+  });
+
+  it("does not split audio for a plain audio-source clip", () => {
+    const { addSource, addClipToTimeline } = useEditorStore.getState();
+    addSource({ id: "src-1", name: "clip.mp3", url: "blob:fake", duration: 10, kind: "audio", blob: new Blob() });
+
+    addClipToTimeline("src-1", "audio-1");
+
+    const clips = useEditorStore.getState().clips;
+    expect(clips).toHaveLength(1);
+    expect(clips[0].mutedVideo).toBeFalsy();
   });
 });

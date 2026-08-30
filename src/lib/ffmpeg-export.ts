@@ -28,6 +28,7 @@ const SCALE_FILTER = `scale=${EXPORT_WIDTH}:${EXPORT_HEIGHT}:force_original_aspe
 
 const TEXT_MARGIN_PX = 40;
 const FONT_FILE_URL = "/fonts/DejaVuSans.ttf";
+const AUDIO_SAMPLE_RATE = 44100;
 
 /** Maps a point in original timeline seconds to seconds in the concatenated (gapless) export output, using each exported clip's cumulative duration offset. */
 interface ExportSegmentSpan {
@@ -88,7 +89,15 @@ function buildDrawtextFilter(clip: Clip, outStart: number, outEnd: number): stri
   );
 }
 
-/** Encodes one clip's trimmed/scaled range to its own standalone mp4 segment, at the shared export resolution/fps/codec. */
+/**
+ * Encodes one clip's trimmed/scaled range to its own standalone mp4 segment,
+ * at the shared export resolution/fps/codec. Every segment also carries an
+ * audio stream at a common sample rate/channel layout - real audio for a
+ * video clip that still owns its sound, or a silent placeholder for a still
+ * image or a video clip whose audio was split onto the audio track
+ * (`clip.mutedVideo`) - so segments always share the same stream layout for
+ * the plain stream-copy concat that follows.
+ */
 async function encodeClipSegment(
   ff: FFmpeg,
   clip: Clip,
@@ -102,13 +111,38 @@ async function encodeClipSegment(
     ? ["-loop", "1", "-t", String(duration), "-i", inputName]
     : ["-ss", String(clip.sourceIn), "-t", String(duration), "-i", inputName];
 
+  const silentAudioArgs = ["-f", "lavfi", "-i", `anullsrc=r=${AUDIO_SAMPLE_RATE}:cl=stereo`];
+  const audioEncodeArgs = ["-c:a", "aac", "-ar", String(AUDIO_SAMPLE_RATE), "-ac", "2"];
+
+  if (!isImage && !clip.mutedVideo) {
+    // Try to carry the clip's own embedded audio through first.
+    const code = await ff.exec([
+      ...args,
+      "-vf", SCALE_FILTER,
+      "-r", String(EXPORT_FPS),
+      "-map", "0:v",
+      "-map", "0:a",
+      "-c:v", "libx264",
+      "-pix_fmt", "yuv420p",
+      ...audioEncodeArgs,
+      outputName,
+    ]);
+    if (code === 0) return;
+    // Source has no audio stream (e.g. a silent video) - fall through to the
+    // silent-placeholder path below instead of leaving a partial/failed file.
+  }
+
   await ff.exec([
     ...args,
+    ...silentAudioArgs,
     "-vf", SCALE_FILTER,
     "-r", String(EXPORT_FPS),
+    "-map", "0:v",
+    "-map", "1:a",
+    "-shortest",
     "-c:v", "libx264",
     "-pix_fmt", "yuv420p",
-    "-an",
+    ...audioEncodeArgs,
     outputName,
   ]);
 }
@@ -238,9 +272,10 @@ export async function exportTimeline(
       ...inputArgs,
       "-filter_complex", filterParts.join(";"),
       "-map", `[${lastLabel}]`,
+      "-map", "0:a",
       "-c:v", "libx264",
       "-pix_fmt", "yuv420p",
-      "-an",
+      "-c:a", "copy",
       "overlayoutput.mp4",
     ]);
     for (const name of overlayInputs) await ff.deleteFile(name);
@@ -263,15 +298,84 @@ export async function exportTimeline(
       "-vf", filters.join(","),
       "-c:v", "libx264",
       "-pix_fmt", "yuv420p",
-      "-an",
+      "-c:a", "copy",
       "textoutput.mp4",
     ]);
     await ff.deleteFile("font.ttf");
     finalOutputName = "textoutput.mp4";
   }
+
+  // Mix every audio-track clip (music, narration, and any video clip's
+  // split-out sound - see mutedVideo) into the export's audio, each delayed
+  // to its position on the gapless export timeline via the same
+  // start/end mapping the overlay/text steps above use. The base audio
+  // already baked into `finalOutputName` (real per-segment audio, silent
+  // where split/absent) is mixed in too so nothing already-correct is lost.
+  const audioTrackIds = new Set(tracks.filter((t) => t.kind === "audio").map((t) => t.id));
+  const audioClips = clips
+    .filter((c) => audioTrackIds.has(c.trackId))
+    .sort((a, b) => a.start - b.start)
+    .filter((c) => {
+      const source = sources.find((s) => s.id === c.sourceId);
+      return source && c.sourceOut - c.sourceIn > 0;
+    });
+
+  let mixedOutputName = finalOutputName;
+  if (audioClips.length > 0) {
+    const mixInputNames: string[] = [];
+    const mixDelaysMs: number[] = [];
+    for (let i = 0; i < audioClips.length; i++) {
+      const clip = audioClips[i];
+      const source = sources.find((s) => s.id === clip.sourceId)!;
+      const duration = clip.sourceOut - clip.sourceIn;
+      const rawInputName = `mix-in-${i}.dat`;
+      const segName = `mix-seg-${i}.m4a`;
+      await ff.writeFile(rawInputName, await fetchFile(source.url));
+      const code = await ff.exec([
+        "-ss", String(clip.sourceIn),
+        "-t", String(duration),
+        "-i", rawInputName,
+        "-vn",
+        "-c:a", "aac",
+        "-ar", String(AUDIO_SAMPLE_RATE),
+        "-ac", "2",
+        segName,
+      ]);
+      await ff.deleteFile(rawInputName);
+      if (code !== 0) continue; // source has no audio stream to extract - skip it
+      mixInputNames.push(segName);
+      mixDelaysMs.push(Math.round(mapTimeToExport(clip.start, segmentSpans) * 1000));
+    }
+
+    if (mixInputNames.length > 0) {
+      const inputArgs: string[] = ["-i", finalOutputName];
+      mixInputNames.forEach((name) => inputArgs.push("-i", name));
+
+      const delayLabels = mixInputNames.map((_, i) => {
+        const ms = Math.max(0, mixDelaysMs[i]);
+        return `[${i + 1}:a]adelay=${ms}|${ms}[ad${i}]`;
+      });
+      const mixInputs = "[0:a]" + mixInputNames.map((_, i) => `[ad${i}]`).join("");
+      const filterComplex =
+        delayLabels.join(";") +
+        `;${mixInputs}amix=inputs=${mixInputNames.length + 1}:duration=first:dropout_transition=0[aout]`;
+
+      await ff.exec([
+        ...inputArgs,
+        "-filter_complex", filterComplex,
+        "-map", "0:v",
+        "-map", "[aout]",
+        "-c:v", "copy",
+        "-c:a", "aac",
+        "mixoutput.mp4",
+      ]);
+      for (const name of mixInputNames) await ff.deleteFile(name);
+      mixedOutputName = "mixoutput.mp4";
+    }
+  }
   onProgress?.(1);
 
-  const data = await ff.readFile(finalOutputName);
+  const data = await ff.readFile(mixedOutputName);
 
   for (const n of segmentNames) await ff.deleteFile(n);
   await ff.deleteFile("list.txt");
@@ -280,6 +384,7 @@ export async function exportTimeline(
   if (finalOutputName !== "output.mp4" && finalOutputName !== compositedOutputName) {
     await ff.deleteFile(finalOutputName);
   }
+  if (mixedOutputName !== finalOutputName) await ff.deleteFile(mixedOutputName);
 
   return new Blob([data as Uint8Array<ArrayBuffer>], { type: "video/mp4" });
 }

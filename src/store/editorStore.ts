@@ -230,6 +230,18 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     const existing = get().clips.filter((c) => c.trackId === trackId);
     const start =
       atStart ?? existing.reduce((max, c) => Math.max(max, c.start + (c.sourceOut - c.sourceIn)), 0);
+
+    // A video clip's own audio is split out onto a matching clip on the
+    // audio track (creating one if none exists yet) instead of playing
+    // embedded in the video, so it's mixed/exported the same way as any
+    // other audio-track clip. The video clip itself stays in the timeline
+    // but plays back muted (see mutedVideo in Preview.tsx/ffmpeg-export.ts).
+    const splitAudio = source.kind === "video";
+    let audioTrackId: string | undefined;
+    if (splitAudio) {
+      audioTrackId = get().tracks.find((t) => t.kind === "audio")?.id ?? get().addTrack("audio");
+    }
+
     const clip: Clip = {
       id: `clip-${Math.random().toString(36).slice(2, 9)}`,
       trackId,
@@ -239,9 +251,25 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       sourceOut: source.duration,
       start,
       color: nextColor(),
+      mutedVideo: splitAudio,
     };
+
     get().pushHistory();
-    set((s) => ({ clips: [...s.clips, clip] }));
+    if (splitAudio && audioTrackId) {
+      const audioClip: Clip = {
+        id: `clip-${Math.random().toString(36).slice(2, 9)}`,
+        trackId: audioTrackId,
+        sourceId: source.id,
+        sourceName: source.name,
+        sourceIn: 0,
+        sourceOut: source.duration,
+        start,
+        color: nextColor(),
+      };
+      set((s) => ({ clips: [...s.clips, clip, audioClip] }));
+    } else {
+      set((s) => ({ clips: [...s.clips, clip] }));
+    }
   },
 
   addTextClip: (trackId, atStart) => {
