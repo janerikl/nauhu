@@ -36,26 +36,34 @@ const AUDIO_SEEK_EPSILON = 0.25;
 /** video.readyState value meaning "has a decoded frame for the current position", per HTMLMediaElement. */
 const HAVE_CURRENT_DATA = 2;
 
-/** Draws `video`'s current frame into `ctx` fit-contain within the canvas, at `alpha` opacity and an optional horizontal pixel offset / uniform scale (used by slide/zoom). */
+/** A transition endpoint's drawable frame source: either a decoding `<video>` or a loaded `<img>`. */
+type FrameSource = HTMLVideoElement | HTMLImageElement;
+
+/** Natural pixel dimensions of a frame source, regardless of whether it's a video or an image. */
+function frameSize(source: FrameSource): { w: number; h: number } {
+  if (source instanceof HTMLVideoElement) return { w: source.videoWidth, h: source.videoHeight };
+  return { w: source.naturalWidth, h: source.naturalHeight };
+}
+
+/** Draws `source`'s current frame into `ctx` fit-contain within the canvas, at `alpha` opacity and an optional horizontal pixel offset / uniform scale (used by slide/zoom). */
 function drawContain(
   ctx: CanvasRenderingContext2D,
   canvasW: number,
   canvasH: number,
-  video: HTMLVideoElement,
+  source: FrameSource,
   alpha: number,
   xOffset = 0,
   scale = 1
 ) {
-  if (!video.videoWidth || alpha <= 0) return;
-  const vw = video.videoWidth;
-  const vh = video.videoHeight;
+  const { w: vw, h: vh } = frameSize(source);
+  if (!vw || !vh || alpha <= 0) return;
   const fit = Math.min(canvasW / vw, canvasH / vh) * scale;
   const dw = vw * fit;
   const dh = vh * fit;
   const dx = (canvasW - dw) / 2 + xOffset;
   const dy = (canvasH - dh) / 2;
   ctx.globalAlpha = alpha;
-  ctx.drawImage(video, dx, dy, dw, dh);
+  ctx.drawImage(source, dx, dy, dw, dh);
   ctx.globalAlpha = 1;
 }
 
@@ -64,8 +72,8 @@ function compositeTransition(
   ctx: CanvasRenderingContext2D,
   w: number,
   h: number,
-  videoA: HTMLVideoElement,
-  videoB: HTMLVideoElement,
+  videoA: FrameSource,
+  videoB: FrameSource,
   type: TransitionType,
   p: number
 ) {
@@ -145,6 +153,12 @@ export function Preview() {
 
   // Secondary video element + canvas, used only while a transition overlap is active.
   const video2Ref = useRef<HTMLVideoElement>(null);
+  // Hidden <img> elements mirroring videoRef/video2Ref for image-kind clips,
+  // kept mounted unconditionally (not gated by !inTransition) so the canvas
+  // compositor always has a decoded image frame to draw from the instant a
+  // transition starts, the same way the off-screen <video>s stay decoding.
+  const imgRef = useRef<HTMLImageElement>(null);
+  const img2Ref = useRef<HTMLImageElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const rafCanvasRef = useRef<number>(0);
   const secondaryClipIdRef = useRef<string | null>(null);
@@ -525,15 +539,17 @@ export function Preview() {
   // exactly the single-<video> behavior above, unmodified.
   useEffect(() => {
     const canvas = canvasRef.current;
-    const videoA = videoRef.current;
-    const videoB = video2Ref.current;
-    if (!canvas || !videoA || !videoB || !activeClip || !secondaryClip) return;
+    const sourceA: FrameSource | null = isImageActive ? imgRef.current : videoRef.current;
+    const sourceB: FrameSource | null = isImageSecondary ? img2Ref.current : video2Ref.current;
+    if (!canvas || !sourceA || !sourceB || !activeClip || !secondaryClip) return;
 
     const overlapDuration = clipEnd(activeClip) - secondaryClip.start;
 
     const draw = () => {
-      const w = videoA.videoWidth || 1280;
-      const h = videoA.videoHeight || 720;
+      const { w: aw, h: ah } = frameSize(sourceA);
+      const { w: bw, h: bh } = frameSize(sourceB);
+      const w = aw || bw || 1280;
+      const h = ah || bh || 720;
       if (canvas.width !== w) canvas.width = w;
       if (canvas.height !== h) canvas.height = h;
       const ctx = canvas.getContext("2d");
@@ -542,13 +558,13 @@ export function Preview() {
         overlapDuration > 0
           ? Math.min(1, Math.max(0, (useEditorStore.getState().playhead - secondaryClip.start) / overlapDuration))
           : 0;
-      compositeTransition(ctx, w, h, videoA, videoB, transitionType, p);
+      compositeTransition(ctx, w, h, sourceA, sourceB, transitionType, p);
       rafCanvasRef.current = requestAnimationFrame(draw);
     };
 
     rafCanvasRef.current = requestAnimationFrame(draw);
     return () => cancelAnimationFrame(rafCanvasRef.current);
-  }, [activeClip, secondaryClip, transitionType]);
+  }, [activeClip, secondaryClip, transitionType, isImageActive, isImageSecondary]);
 
   const inTransition = Boolean(activeClip && secondaryClip);
   // Videos not currently shown stay decoding off-screen (not display:none,
@@ -580,6 +596,19 @@ export function Preview() {
         */}
         {isImageActive && activeSource && !inTransition && (
           <img src={activeSource.url} className="preview-video" alt="" />
+        )}
+        {/*
+          Kept mounted whenever the active/secondary clip is an image, even
+          during a transition (unlike the visible <img> above, which hides
+          then) - the canvas compositor reads its decoded frame directly via
+          imgRef/img2Ref, the same way it reads videoRef/video2Ref for video
+          clips.
+        */}
+        {isImageActive && activeSource && (
+          <img ref={imgRef} src={activeSource.url} className="preview-video" style={offscreenStyle} alt="" />
+        )}
+        {isImageSecondary && secondarySource && (
+          <img ref={img2Ref} src={secondarySource.url} className="preview-video" style={offscreenStyle} alt="" />
         )}
         <video
           ref={videoRef}
