@@ -476,7 +476,11 @@ export function Timeline() {
                     <span className="clip-label">{clip.sourceName}</span>
                     {(() => {
                       const source = sources.find((s) => s.id === clip.sourceId);
-                      if (source?.kind !== "audio") return null;
+                      // Gate on the track, not the source's own kind: a clip
+                      // on the audio track can point at a video source (its
+                      // audio split out via mutedVideo) and still has
+                      // decodable audio worth drawing a waveform for.
+                      if (track.kind !== "audio" || !source) return null;
                       const clipWidth =
                         timeToPx(clip.start + clipDuration(clip)) - timeToPx(clip.start);
                       return (

@@ -24,6 +24,8 @@ export interface Clip {
   color: string;
   /** present only for clips on a "text" track - styling for the on-screen text overlay */
   text?: TextClipStyle;
+  /** true when this video clip's own embedded audio has been split out onto a matching audio-track clip and should stay silent in playback/export */
+  mutedVideo?: boolean;
 }
 
 export interface Track {

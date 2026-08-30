@@ -24,6 +24,15 @@ function textClipOpacity(clip: Clip, playhead: number): number {
 }
 
 const SEEK_EPSILON = 0.05;
+// The audio element isn't what drives `playhead` (the primary video is), so
+// its own clock naturally drifts a bit from the video-derived playhead even
+// during normal, correctly-synced playback. A tight epsilon here (matching
+// the video's, which IS the playhead's source of truth) causes frequent
+// small corrective hard-seeks on the audio element, and each one is an
+// audible glitch - together they sound like distortion. A looser tolerance
+// only fires this correction for genuine external jumps (scrub, Home),
+// which are much larger than routine clock drift.
+const AUDIO_SEEK_EPSILON = 0.25;
 /** video.readyState value meaning "has a decoded frame for the current position", per HTMLMediaElement. */
 const HAVE_CURRENT_DATA = 2;
 
@@ -145,6 +154,18 @@ export function Preview() {
   const { primary: activeClip, secondary: secondaryClip } =
     crossTrackPair ?? findActivePair(clips, tracks, "video", playhead);
   const activeSource = activeClip ? sources.find((s) => s.id === activeClip.sourceId) : undefined;
+
+  // Audio track playback: independent of whatever's active on the video
+  // track(s) - the timeline's own <video> elements only ever play back
+  // clips that live on a "video" track, so a clip on an "audio" track needs
+  // its own element driven the same way (source-switch, seek, play/pause).
+  const audioRef = useRef<HTMLAudioElement>(null);
+  const activeAudioClipIdRef = useRef<string | null>(null);
+  const loadedAudioUrlRef = useRef<string | null>(null);
+  const { primary: activeAudioClip } = findActivePair(clips, tracks, "audio", playhead);
+  const activeAudioSource = activeAudioClip
+    ? sources.find((s) => s.id === activeAudioClip.sourceId)
+    : undefined;
   const secondarySource = secondaryClip
     ? sources.find((s) => s.id === secondaryClip.sourceId)
     : undefined;
@@ -246,6 +267,23 @@ export function Preview() {
     }
   }, [playhead, secondaryClip, isImageSecondary]);
 
+  // Set `muted` imperatively rather than relying solely on the JSX prop:
+  // React doesn't reliably re-apply the `muted` IDL property to an existing
+  // <video> element on every update (it's a known quirk - the attribute only
+  // really takes on creation), so a clip that should be silent (its audio
+  // split onto the audio track) could otherwise keep playing its own
+  // embedded audio alongside the separate <audio> element, doubling up into
+  // a phased/distorted sound.
+  useEffect(() => {
+    const video = videoRef.current;
+    if (video) video.muted = Boolean(activeClip?.mutedVideo);
+  }, [activeClip?.id, activeClip?.mutedVideo]);
+
+  useEffect(() => {
+    const video = video2Ref.current;
+    if (video) video.muted = Boolean(secondaryClip?.mutedVideo);
+  }, [secondaryClip?.id, secondaryClip?.mutedVideo]);
+
   useEffect(() => {
     const video = videoRef.current;
     if (!video || isImageActive) return;
@@ -260,6 +298,61 @@ export function Preview() {
     else video.pause();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isPlaying, secondaryClip?.id, isImageSecondary]);
+
+  // Switch the <audio> element's source when the active audio-track clip
+  // changes, same rationale as the primary video's source-switch effect
+  // above (avoid a spurious reload when the underlying source hasn't
+  // actually changed).
+  useEffect(() => {
+    const audio = audioRef.current;
+    if (!audio || !activeAudioClip || !activeAudioSource) {
+      activeAudioClipIdRef.current = null;
+      return;
+    }
+    if (activeAudioClipIdRef.current === activeAudioClip.id) return;
+    activeAudioClipIdRef.current = activeAudioClip.id;
+
+    const targetTime = activeAudioClip.sourceIn + (playhead - activeAudioClip.start);
+
+    const seekAndResumeIfPlaying = () => {
+      audio.currentTime = targetTime;
+      if (useEditorStore.getState().isPlaying) audio.play().catch(() => {});
+    };
+
+    if (loadedAudioUrlRef.current !== activeAudioSource.url) {
+      loadedAudioUrlRef.current = activeAudioSource.url;
+      audio.src = activeAudioSource.url;
+      audio.addEventListener("loadedmetadata", seekAndResumeIfPlaying, { once: true });
+      return () => audio.removeEventListener("loadedmetadata", seekAndResumeIfPlaying);
+    }
+
+    seekAndResumeIfPlaying();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeAudioClip?.id, activeAudioSource?.url]);
+
+  // Seek the audio element on external playhead jumps, mirroring the video's
+  // equivalent effect.
+  useEffect(() => {
+    const audio = audioRef.current;
+    if (!audio || !activeAudioClip) return;
+    const clipLocalTime = activeAudioClip.sourceIn + (playhead - activeAudioClip.start);
+    if (Math.abs(audio.currentTime - clipLocalTime) > AUDIO_SEEK_EPSILON) {
+      audio.currentTime = clipLocalTime;
+    }
+  }, [playhead, activeAudioClip]);
+
+  // Pause the audio element once there's no clip under the playhead on any
+  // audio track, and start/stop it in step with the rest of the timeline.
+  useEffect(() => {
+    const audio = audioRef.current;
+    if (!audio) return;
+    if (!activeAudioClip) {
+      audio.pause();
+      return;
+    }
+    if (isPlaying) audio.play().catch(() => {});
+    else audio.pause();
+  }, [isPlaying, activeAudioClip?.id]);
 
   // Crossfade audio between the two elements across the transition, so the
   // incoming clip's sound fades in as the outgoing clip's fades out.
@@ -465,28 +558,43 @@ export function Preview() {
   return (
     <div className="preview">
       <div className="preview-canvas" ref={previewCanvasRef}>
-        {activeClip ? (
-          <>
-            {isImageActive && activeSource && !inTransition && (
-              <img src={activeSource.url} className="preview-video" alt="" />
-            )}
-            <video
-              ref={videoRef}
-              className="preview-video"
-              style={isImageActive || inTransition ? offscreenStyle : undefined}
-              muted={false}
-              playsInline
-            />
-            <video ref={video2Ref} className="preview-video" style={offscreenStyle} muted={false} playsInline />
-            <canvas
-              ref={canvasRef}
-              className="preview-video"
-              style={{ display: inTransition ? "block" : "none" }}
-            />
-          </>
-        ) : (
-          <div className="preview-empty">No clip at playhead</div>
+        {/*
+          The <video>/<video2>/<canvas> elements stay mounted unconditionally
+          (visibility toggled via style, not the JSX tree) rather than being
+          gated behind `activeClip ? ... : ...`. Unmounting them whenever
+          `activeClip` goes briefly undefined - which can genuinely happen for
+          a render or two while dragging a clip past the playhead - would
+          destroy the DOM node `videoRef`/`video2Ref` point at. A later
+          remount creates a fresh, src-less element, but the source-switch
+          effects' `activeClipIdRef`/`loadedSourceUrlRef` guards can still
+          think the (new, blank) element already has the right source loaded
+          and skip re-assigning `.src` - leaving the preview permanently
+          black even after `activeClip` settles back down.
+        */}
+        {isImageActive && activeSource && !inTransition && (
+          <img src={activeSource.url} className="preview-video" alt="" />
         )}
+        <video
+          ref={videoRef}
+          className="preview-video"
+          style={!activeClip || isImageActive || inTransition ? offscreenStyle : undefined}
+          muted={Boolean(activeClip?.mutedVideo)}
+          playsInline
+        />
+        <video
+          ref={video2Ref}
+          className="preview-video"
+          style={offscreenStyle}
+          muted={Boolean(secondaryClip?.mutedVideo)}
+          playsInline
+        />
+        <canvas
+          ref={canvasRef}
+          className="preview-video"
+          style={{ display: inTransition ? "block" : "none" }}
+        />
+        {!activeClip && <div className="preview-empty">No clip at playhead</div>}
+        <audio ref={audioRef} style={{ display: "none" }} />
         {textScale > 0 &&
           activeTextClips.map((clip) => {
             const style = clip.text!;

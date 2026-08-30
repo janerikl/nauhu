@@ -5,6 +5,23 @@ import { ensurePlayableVideo } from "../lib/transcode";
 
 const DEFAULT_IMAGE_DURATION = 5;
 
+const AUDIO_EXTENSIONS = [".mp3", ".m4a", ".aac", ".wav", ".ogg", ".oga", ".flac", ".weba", ".opus"];
+const IMAGE_EXTENSIONS = [".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp", ".svg"];
+
+/** Classifies a file's media kind. Browsers report an empty or generic MIME
+ * type (e.g. "application/octet-stream") for some containers - notably
+ * .m4a on several platforms - so a filename-extension fallback catches what
+ * `file.type` misses instead of silently misrouting the file as video. */
+function detectMediaKind(file: File): "audio" | "image" | "video" {
+  if (file.type.startsWith("audio")) return "audio";
+  if (file.type.startsWith("image")) return "image";
+  if (file.type.startsWith("video")) return "video";
+  const name = file.name.toLowerCase();
+  if (AUDIO_EXTENSIONS.some((ext) => name.endsWith(ext))) return "audio";
+  if (IMAGE_EXTENSIONS.some((ext) => name.endsWith(ext))) return "image";
+  return "video";
+}
+
 function loadMediaDuration(url: string, kind: "video" | "audio"): Promise<number> {
   return new Promise((resolve) => {
     const el = document.createElement(kind === "audio" ? "audio" : "video");
@@ -26,11 +43,7 @@ export function MediaBin() {
     async (files: FileList | null) => {
       if (!files) return;
       for (const file of Array.from(files)) {
-        const kind = file.type.startsWith("audio")
-          ? "audio"
-          : file.type.startsWith("image")
-            ? "image"
-            : "video";
+        const kind = detectMediaKind(file);
 
         let playableFile: File | Blob = file;
         if (kind === "video") {
