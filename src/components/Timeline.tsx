@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type WheelEvent } from "react";
+import { useEffect, useRef, useState, type MouseEvent as ReactMouseEvent, type WheelEvent } from "react";
 import { useEditorStore } from "../store/editorStore";
 import {
   clipDuration,
@@ -74,6 +74,41 @@ export function Timeline() {
   const [hoverTrackId, setHoverTrackId] = useState<string | null>(null);
   const [snapGuide, setSnapGuide] = useState<number | null>(null);
   const [dragOverKey, setDragOverKey] = useState<string | null>(null);
+
+  const MIN_TIMELINE_HEIGHT = 140;
+  const MAX_TIMELINE_HEIGHT = Math.round(window.innerHeight * 0.8);
+  const [timelineHeight, setTimelineHeight] = useState(() => {
+    const stored = Number(localStorage.getItem("timelineHeight"));
+    if (Number.isFinite(stored) && stored >= MIN_TIMELINE_HEIGHT) return stored;
+    return 260;
+  });
+  const heightDragRef = useRef<{ originY: number; originHeight: number } | null>(null);
+
+  const onHeightHandleMouseDown = (e: ReactMouseEvent) => {
+    e.preventDefault();
+    heightDragRef.current = { originY: e.clientY, originHeight: timelineHeight };
+    const onMouseMove = (ev: MouseEvent) => {
+      const origin = heightDragRef.current;
+      if (!origin) return;
+      const delta = origin.originY - ev.clientY;
+      const next = Math.min(
+        MAX_TIMELINE_HEIGHT,
+        Math.max(MIN_TIMELINE_HEIGHT, origin.originHeight + delta)
+      );
+      setTimelineHeight(next);
+    };
+    const onMouseUp = () => {
+      heightDragRef.current = null;
+      window.removeEventListener("mousemove", onMouseMove);
+      window.removeEventListener("mouseup", onMouseUp);
+    };
+    window.addEventListener("mousemove", onMouseMove);
+    window.addEventListener("mouseup", onMouseUp);
+  };
+
+  useEffect(() => {
+    localStorage.setItem("timelineHeight", String(timelineHeight));
+  }, [timelineHeight]);
 
   const timeToPx = (t: number) => t * zoom;
   const pxToTime = (px: number) => px / zoom;
@@ -338,7 +373,8 @@ export function Timeline() {
   };
 
   return (
-    <div className="timeline">
+    <div className="timeline" style={{ height: timelineHeight }}>
+      <div className="timeline-resize-handle" onMouseDown={onHeightHandleMouseDown} />
       <div className="timeline-toolbar">
         <button
           className="btn-icon"
