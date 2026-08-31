@@ -178,7 +178,12 @@ export async function loadProjectById(id: string): Promise<(HydrateData & { id: 
     const kind = meta.kind === "video" && blob.type.startsWith("image") ? "image" : meta.kind;
     const folder = meta.folder ?? "Ungrouped";
     const addedAt = meta.addedAt ?? project.updatedAt;
-    sources.push({ ...meta, kind, folder, addedAt, blob, url: URL.createObjectURL(blob) });
+    const url = URL.createObjectURL(blob);
+    // Image thumbnails are the same blob URL as the full image, which goes
+    // stale across reloads (object URLs don't survive a page reload); video
+    // thumbnails are baked JPEG data URLs and stay valid, so leave those.
+    const thumbnail = kind === "image" ? url : meta.thumbnail;
+    sources.push({ ...meta, kind, folder, addedAt, blob, url, thumbnail });
   }
 
   return {
