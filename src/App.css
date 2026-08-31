@@ -221,7 +221,7 @@ body {
 }
 
 .sidebar {
-  width: 300px;
+  width: 340px;
   flex-shrink: 0;
   border-right: 1px solid var(--border);
   background: var(--bg-panel);
@@ -443,10 +443,10 @@ body {
 }
 
 .media-item-thumb {
-  width: 28px;
-  height: 18px;
+  width: 48px;
+  height: 32px;
   object-fit: cover;
-  border-radius: 3px;
+  border-radius: 4px;
   flex-shrink: 0;
   background: #000;
 }
