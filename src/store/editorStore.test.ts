@@ -4,6 +4,7 @@ import { useEditorStore } from "./editorStore";
 const resetStore = () => {
   useEditorStore.setState({
     sources: [],
+    folders: [],
     tracks: [
       { id: "video-1", name: "Video", kind: "video" },
       { id: "audio-1", name: "Audio", kind: "audio" },
@@ -25,7 +26,7 @@ describe("editorStore splitClipAtPlayhead", () => {
     const { addSource, addClipToTimeline, splitClipAtPlayhead, setPlayhead } =
       useEditorStore.getState();
 
-    addSource({ id: "src-1", name: "photo.png", url: "blob:fake", duration: 10, kind: "image", blob: new Blob() });
+    addSource({ id: "src-1", name: "photo.png", url: "blob:fake", duration: 10, kind: "image", folder: "Ungrouped", addedAt: Date.now(), blob: new Blob() });
     addClipToTimeline("src-1", "video-1");
 
     const originalId = useEditorStore.getState().clips[0].id;
@@ -57,7 +58,7 @@ describe("editorStore trimClip", () => {
   it("clamps the playhead back inside a clip trimmed shorter from the end", () => {
     const { addSource, addClipToTimeline, trimClip, setPlayhead } = useEditorStore.getState();
 
-    addSource({ id: "src-1", name: "clip.mp4", url: "blob:fake", duration: 10, kind: "video", blob: new Blob() });
+    addSource({ id: "src-1", name: "clip.mp4", url: "blob:fake", duration: 10, kind: "video", folder: "Ungrouped", addedAt: Date.now(), blob: new Blob() });
     addClipToTimeline("src-1", "video-1");
     const clipId = useEditorStore.getState().clips[0].id;
 
@@ -73,7 +74,7 @@ describe("editorStore trimClip", () => {
   it("clamps the playhead forward when trimming the in-point past it", () => {
     const { addSource, addClipToTimeline, trimClip, setPlayhead } = useEditorStore.getState();
 
-    addSource({ id: "src-1", name: "clip.mp4", url: "blob:fake", duration: 10, kind: "video", blob: new Blob() });
+    addSource({ id: "src-1", name: "clip.mp4", url: "blob:fake", duration: 10, kind: "video", folder: "Ungrouped", addedAt: Date.now(), blob: new Blob() });
     addClipToTimeline("src-1", "video-1");
     const clipId = useEditorStore.getState().clips[0].id;
 
@@ -105,7 +106,7 @@ describe("editorStore track management", () => {
     addTrack("video");
     const newTrackId = useEditorStore.getState().tracks.at(-1)!.id;
 
-    addSource({ id: "src-1", name: "photo.png", url: "blob:fake", duration: 5, kind: "image", blob: new Blob() });
+    addSource({ id: "src-1", name: "photo.png", url: "blob:fake", duration: 5, kind: "image", folder: "Ungrouped", addedAt: Date.now(), blob: new Blob() });
     addClipToTimeline("src-1", newTrackId);
     expect(useEditorStore.getState().clips).toHaveLength(1);
 
@@ -120,7 +121,7 @@ describe("editorStore undo/redo", () => {
 
   it("undoes and redoes adding a clip", () => {
     const { addSource, addClipToTimeline, undo, redo } = useEditorStore.getState();
-    addSource({ id: "src-1", name: "photo.png", url: "blob:fake", duration: 10, kind: "image", blob: new Blob() });
+    addSource({ id: "src-1", name: "photo.png", url: "blob:fake", duration: 10, kind: "image", folder: "Ungrouped", addedAt: Date.now(), blob: new Blob() });
     addClipToTimeline("src-1", "video-1");
     expect(useEditorStore.getState().clips).toHaveLength(1);
 
@@ -135,7 +136,7 @@ describe("editorStore undo/redo", () => {
     const { addTrack, addSource, addClipToTimeline, removeTrack, undo } = useEditorStore.getState();
     addTrack("video");
     const newTrackId = useEditorStore.getState().tracks.at(-1)!.id;
-    addSource({ id: "src-1", name: "photo.png", url: "blob:fake", duration: 5, kind: "image", blob: new Blob() });
+    addSource({ id: "src-1", name: "photo.png", url: "blob:fake", duration: 5, kind: "image", folder: "Ungrouped", addedAt: Date.now(), blob: new Blob() });
     addClipToTimeline("src-1", newTrackId);
 
     removeTrack(newTrackId);
@@ -150,7 +151,7 @@ describe("editorStore undo/redo", () => {
   it("steps back through multiple actions in order and forward again", () => {
     const { addSource, addClipToTimeline, splitClipAtPlayhead, setPlayhead, undo, redo } =
       useEditorStore.getState();
-    addSource({ id: "src-1", name: "photo.png", url: "blob:fake", duration: 10, kind: "image", blob: new Blob() });
+    addSource({ id: "src-1", name: "photo.png", url: "blob:fake", duration: 10, kind: "image", folder: "Ungrouped", addedAt: Date.now(), blob: new Blob() });
     addClipToTimeline("src-1", "video-1");
     const clipId = useEditorStore.getState().clips[0].id;
     setPlayhead(4);
@@ -214,7 +215,7 @@ describe("editorStore addClipToTimeline track kind routing", () => {
 
   it("routes a video source dropped on the audio track to a video track instead", () => {
     const { addSource, addClipToTimeline } = useEditorStore.getState();
-    addSource({ id: "src-1", name: "clip.mp4", url: "blob:fake", duration: 10, kind: "video", blob: new Blob() });
+    addSource({ id: "src-1", name: "clip.mp4", url: "blob:fake", duration: 10, kind: "video", folder: "Ungrouped", addedAt: Date.now(), blob: new Blob() });
 
     addClipToTimeline("src-1", "audio-1");
 
@@ -225,7 +226,7 @@ describe("editorStore addClipToTimeline track kind routing", () => {
 
   it("routes an audio source dropped on the video track to the audio track instead", () => {
     const { addSource, addClipToTimeline } = useEditorStore.getState();
-    addSource({ id: "src-1", name: "clip.mp3", url: "blob:fake", duration: 10, kind: "audio", blob: new Blob() });
+    addSource({ id: "src-1", name: "clip.mp3", url: "blob:fake", duration: 10, kind: "audio", folder: "Ungrouped", addedAt: Date.now(), blob: new Blob() });
 
     addClipToTimeline("src-1", "video-1");
 
@@ -237,7 +238,7 @@ describe("editorStore addClipToTimeline track kind routing", () => {
   it("does nothing when no track of the required kind exists", () => {
     const { addSource, addClipToTimeline } = useEditorStore.getState();
     useEditorStore.setState({ tracks: [{ id: "audio-1", name: "Audio", kind: "audio" }] });
-    addSource({ id: "src-1", name: "clip.mp4", url: "blob:fake", duration: 10, kind: "video", blob: new Blob() });
+    addSource({ id: "src-1", name: "clip.mp4", url: "blob:fake", duration: 10, kind: "video", folder: "Ungrouped", addedAt: Date.now(), blob: new Blob() });
 
     addClipToTimeline("src-1", "audio-1");
 
@@ -246,7 +247,7 @@ describe("editorStore addClipToTimeline track kind routing", () => {
 
   it("keeps an image source on a video track", () => {
     const { addSource, addClipToTimeline } = useEditorStore.getState();
-    addSource({ id: "src-1", name: "photo.png", url: "blob:fake", duration: 5, kind: "image", blob: new Blob() });
+    addSource({ id: "src-1", name: "photo.png", url: "blob:fake", duration: 5, kind: "image", folder: "Ungrouped", addedAt: Date.now(), blob: new Blob() });
 
     addClipToTimeline("src-1", "video-1");
 
@@ -261,7 +262,7 @@ describe("editorStore addClipToTimeline video audio split", () => {
 
   it("splits a video clip's audio onto the audio track and mutes the video clip", () => {
     const { addSource, addClipToTimeline } = useEditorStore.getState();
-    addSource({ id: "src-1", name: "clip.mp4", url: "blob:fake", duration: 10, kind: "video", blob: new Blob() });
+    addSource({ id: "src-1", name: "clip.mp4", url: "blob:fake", duration: 10, kind: "video", folder: "Ungrouped", addedAt: Date.now(), blob: new Blob() });
 
     addClipToTimeline("src-1", "video-1", 2);
 
@@ -281,7 +282,7 @@ describe("editorStore addClipToTimeline video audio split", () => {
   it("creates an audio track for the split when none exists", () => {
     const { addSource, addClipToTimeline } = useEditorStore.getState();
     useEditorStore.setState({ tracks: [{ id: "video-1", name: "Video", kind: "video" }] });
-    addSource({ id: "src-1", name: "clip.mp4", url: "blob:fake", duration: 10, kind: "video", blob: new Blob() });
+    addSource({ id: "src-1", name: "clip.mp4", url: "blob:fake", duration: 10, kind: "video", folder: "Ungrouped", addedAt: Date.now(), blob: new Blob() });
 
     addClipToTimeline("src-1", "video-1");
 
@@ -293,7 +294,7 @@ describe("editorStore addClipToTimeline video audio split", () => {
 
   it("does not split audio for a plain audio-source clip", () => {
     const { addSource, addClipToTimeline } = useEditorStore.getState();
-    addSource({ id: "src-1", name: "clip.mp3", url: "blob:fake", duration: 10, kind: "audio", blob: new Blob() });
+    addSource({ id: "src-1", name: "clip.mp3", url: "blob:fake", duration: 10, kind: "audio", folder: "Ungrouped", addedAt: Date.now(), blob: new Blob() });
 
     addClipToTimeline("src-1", "audio-1");
 

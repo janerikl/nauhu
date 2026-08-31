@@ -18,6 +18,9 @@ interface PersistedSourceMeta {
   name: string;
   duration: number;
   kind: "video" | "audio" | "image";
+  folder: string;
+  thumbnail?: string;
+  addedAt?: number;
 }
 
 export interface PersistedProject {
@@ -28,6 +31,7 @@ export interface PersistedProject {
   clips: Clip[];
   zoom: number;
   sources: PersistedSourceMeta[];
+  folders: string[];
   transitions: TimelineTransition[];
 }
 
@@ -102,6 +106,7 @@ export async function createProject(name: string): Promise<string> {
     clips: [],
     zoom: 60,
     sources: [],
+    folders: [],
     transitions: [],
   };
   await db.put(PROJECTS_STORE, project);
@@ -112,7 +117,14 @@ export async function createProject(name: string): Promise<string> {
 export async function saveProjectById(
   id: string,
   name: string,
-  state: { tracks: Track[]; clips: Clip[]; zoom: number; sources: MediaSource[]; transitions: TimelineTransition[] }
+  state: {
+    tracks: Track[];
+    clips: Clip[];
+    zoom: number;
+    sources: MediaSource[];
+    folders: string[];
+    transitions: TimelineTransition[];
+  }
 ): Promise<void> {
   const db = await getDB();
 
@@ -123,7 +135,16 @@ export async function saveProjectById(
     tracks: state.tracks,
     clips: state.clips,
     zoom: state.zoom,
-    sources: state.sources.map((s) => ({ id: s.id, name: s.name, duration: s.duration, kind: s.kind })),
+    sources: state.sources.map((s) => ({
+      id: s.id,
+      name: s.name,
+      duration: s.duration,
+      kind: s.kind,
+      folder: s.folder,
+      thumbnail: s.thumbnail,
+      addedAt: s.addedAt,
+    })),
+    folders: state.folders,
     transitions: state.transitions,
   };
 
@@ -155,7 +176,14 @@ export async function loadProjectById(id: string): Promise<(HydrateData & { id: 
     // "video" (the only non-audio kind that existed then); fix that up here
     // so old projects get real image playback instead of a stalled <video>.
     const kind = meta.kind === "video" && blob.type.startsWith("image") ? "image" : meta.kind;
-    sources.push({ ...meta, kind, blob, url: URL.createObjectURL(blob) });
+    const folder = meta.folder ?? "Ungrouped";
+    const addedAt = meta.addedAt ?? project.updatedAt;
+    const url = URL.createObjectURL(blob);
+    // Image thumbnails are the same blob URL as the full image, which goes
+    // stale across reloads (object URLs don't survive a page reload); video
+    // thumbnails are baked JPEG data URLs and stay valid, so leave those.
+    const thumbnail = kind === "image" ? url : meta.thumbnail;
+    sources.push({ ...meta, kind, folder, addedAt, blob, url, thumbnail });
   }
 
   return {
@@ -165,6 +193,7 @@ export async function loadProjectById(id: string): Promise<(HydrateData & { id: 
     clips: project.clips,
     zoom: project.zoom,
     sources,
+    folders: project.folders ?? [],
     transitions: project.transitions ?? [],
   };
 }

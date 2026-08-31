@@ -24,6 +24,8 @@ const makeSource = (overrides: Partial<MediaSource> = {}): MediaSource => ({
   url: "blob:fake-original",
   duration: 10,
   kind: "video",
+  folder: "Ungrouped",
+  addedAt: Date.now(),
   blob: new Blob(["fake video bytes"], { type: "video/mp4" }),
   ...overrides,
 });
@@ -50,7 +52,7 @@ describe("persistence", () => {
     const source = makeSource();
     const clip = makeClip({ sourceId: source.id });
 
-    await saveProjectById(id, "My Video", { tracks, clips: [clip], zoom: 80, sources: [source], transitions: [] });
+    await saveProjectById(id, "My Video", { tracks, clips: [clip], zoom: 80, sources: [source], folders: [], transitions: [] });
     const loaded = await loadProjectById(id);
 
     expect(loaded).not.toBeNull();
@@ -67,7 +69,7 @@ describe("persistence", () => {
   it("persists the actual media blob, not just a reference", async () => {
     const id = await createProject("P1");
     const source = makeSource();
-    await saveProjectById(id, "P1", { tracks, clips: [], zoom: 60, sources: [source], transitions: [] });
+    await saveProjectById(id, "P1", { tracks, clips: [], zoom: 60, sources: [source], folders: [], transitions: [] });
 
     const loaded = await loadProjectById(id);
     const loadedBlob = loaded!.sources[0].blob;
@@ -80,10 +82,10 @@ describe("persistence", () => {
   it("does not rewrite a media blob that was already saved", async () => {
     const id = await createProject("P2");
     const source = makeSource();
-    await saveProjectById(id, "P2", { tracks, clips: [], zoom: 60, sources: [source], transitions: [] });
+    await saveProjectById(id, "P2", { tracks, clips: [], zoom: 60, sources: [source], folders: [], transitions: [] });
     // Save again with the same source id but a different blob instance/content.
     const mutatedSource = { ...source, blob: new Blob(["different bytes"]) };
-    await saveProjectById(id, "P2", { tracks, clips: [], zoom: 60, sources: [mutatedSource], transitions: [] });
+    await saveProjectById(id, "P2", { tracks, clips: [], zoom: 60, sources: [mutatedSource], folders: [], transitions: [] });
 
     const loaded = await loadProjectById(id);
     const text = await loaded!.sources[0].blob.text();
@@ -98,8 +100,8 @@ describe("persistence", () => {
     const clipA = makeClip({ id: "clip-a", sourceId: sourceA.id });
     const clipB = makeClip({ id: "clip-b", sourceId: sourceB.id });
 
-    await saveProjectById(idA, "A", { tracks, clips: [clipA], zoom: 60, sources: [sourceA], transitions: [] });
-    await saveProjectById(idB, "B", { tracks, clips: [clipB], zoom: 60, sources: [sourceB], transitions: [] });
+    await saveProjectById(idA, "A", { tracks, clips: [clipA], zoom: 60, sources: [sourceA], folders: [], transitions: [] });
+    await saveProjectById(idB, "B", { tracks, clips: [clipB], zoom: 60, sources: [sourceB], folders: [], transitions: [] });
 
     const loadedA = await loadProjectById(idA);
     const loadedB = await loadProjectById(idB);
