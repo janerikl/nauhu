@@ -14,6 +14,7 @@ import {
 import { Scissors, Trash2, Plus, X, ZoomIn, ZoomOut } from "lucide-react";
 import { Waveform } from "./Waveform";
 import { Filmstrip } from "./Filmstrip";
+import { TransitionsMenu } from "./TransitionsMenu";
 
 const TRACK_HEIGHT = 106;
 const RULER_HEIGHT = 24;
@@ -443,6 +444,8 @@ export function Timeline() {
           <Plus size={14} /> Text
         </button>
         <span className="timeline-divider" />
+        <TransitionsMenu />
+        <span className="timeline-divider" />
         <button
           className="btn-icon"
           onClick={() => setZoom(zoom / 1.25)}
@@ -675,7 +678,7 @@ export function Timeline() {
                         left: timeToPx(dropZoneStart),
                         width: Math.max(4, timeToPx(DEFAULT_TRANSITION_OVERLAP)),
                       }}
-                      title="Drag a transition here from the Transitions panel"
+                      title="Drag a transition here from the Transitions menu"
                       onMouseDown={(e) => e.stopPropagation()}
                       onDragOver={(e) => {
                         e.preventDefault();
