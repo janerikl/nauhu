@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { captureVideoFrame, filmstripTimestamps } from "../lib/videoThumbnail";
+import { getImageThumbnail } from "../lib/thumbnailCache";
 
 // Frames are cached per source id so re-renders (drag, trim, zoom) don't
 // re-seek the video file each time the same timestamp is needed again.
@@ -37,6 +38,7 @@ interface FilmstripProps {
 
 export function Filmstrip({ sourceId, url, kind, sourceIn, sourceOut, width, height }: FilmstripProps) {
   const [videoFrames, setVideoFrames] = useState<string[]>([]);
+  const [imageThumb, setImageThumb] = useState<string | undefined>(undefined);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
   useEffect(() => {
@@ -59,13 +61,26 @@ export function Filmstrip({ sourceId, url, kind, sourceIn, sourceOut, width, hei
     return () => clearTimeout(debounceRef.current);
   }, [kind, sourceId, url, sourceIn, sourceOut, width]);
 
+  useEffect(() => {
+    if (kind !== "image") return;
+    let cancelled = false;
+    getImageThumbnail(sourceId, url).then((thumb) => {
+      if (!cancelled) setImageThumb(thumb);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [kind, sourceId, url]);
+
   if (width < MIN_WIDTH) return null;
 
   // A static image has no timeline to seek, so every slot repeats the same
-  // frame - no async capture or debounce needed, just fill synchronously.
+  // downscaled thumbnail - no per-timestamp capture or debounce needed.
   const frames =
     kind === "image"
-      ? Array(filmstripTimestamps(width, sourceIn, sourceOut, FRAME_INTERVAL_PX).length).fill(url)
+      ? imageThumb
+        ? Array(filmstripTimestamps(width, sourceIn, sourceOut, FRAME_INTERVAL_PX).length).fill(imageThumb)
+        : []
       : videoFrames;
 
   if (frames.length === 0) return null;
