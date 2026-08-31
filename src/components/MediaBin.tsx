@@ -21,6 +21,7 @@ import {
 } from "lucide-react";
 import { ensurePlayableVideo } from "../lib/transcode";
 import { captureVideoThumbnail } from "../lib/videoThumbnail";
+import { getImageThumbnail, regenerateImageThumbnail } from "../lib/thumbnailCache";
 
 const DEFAULT_IMAGE_DURATION = 5;
 const DEFAULT_FOLDER = "Ungrouped";
@@ -152,9 +153,11 @@ export function MediaBin() {
         const url = URL.createObjectURL(playableFile);
         const duration =
           kind === "image" ? DEFAULT_IMAGE_DURATION : await loadMediaDuration(url, kind);
-        const thumbnail = kind === "image" ? url : kind === "video" ? await captureVideoThumbnail(url) : undefined;
+        const id = `src-${Math.random().toString(36).slice(2, 9)}`;
+        const thumbnail =
+          kind === "image" ? await getImageThumbnail(id, url) : kind === "video" ? await captureVideoThumbnail(url) : undefined;
         addSource({
-          id: `src-${Math.random().toString(36).slice(2, 9)}`,
+          id,
           name: file.name,
           url,
           duration,
@@ -199,7 +202,9 @@ export function MediaBin() {
   const regenerateThumbnail = async (source: MediaSource) => {
     setContextMenu(null);
     const thumbnail =
-      source.kind === "image" ? source.url : await captureVideoThumbnail(source.url);
+      source.kind === "image"
+        ? await regenerateImageThumbnail(source.id, source.url)
+        : await captureVideoThumbnail(source.url);
     if (thumbnail) updateSourceThumbnail(source.id, thumbnail);
   };
 
