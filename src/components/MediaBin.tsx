@@ -20,6 +20,7 @@ import {
   RefreshCw,
 } from "lucide-react";
 import { ensurePlayableVideo } from "../lib/transcode";
+import { captureVideoThumbnail } from "../lib/videoThumbnail";
 
 const DEFAULT_IMAGE_DURATION = 5;
 const DEFAULT_FOLDER = "Ungrouped";
@@ -69,41 +70,6 @@ function loadMediaDuration(url: string, kind: "video" | "audio"): Promise<number
     el.src = url;
     el.onloadedmetadata = () => resolve(el.duration);
     el.onerror = () => resolve(0);
-  });
-}
-
-/** Grabs a mid-point frame from a video file as a small JPEG data URL for use as a thumbnail. */
-function captureVideoThumbnail(url: string): Promise<string | undefined> {
-  return new Promise((resolve) => {
-    const video = document.createElement("video");
-    video.preload = "metadata";
-    video.muted = true;
-    video.playsInline = true;
-    video.src = url;
-    const finish = (result: string | undefined) => {
-      clearTimeout(timeout);
-      video.onseeked = null;
-      video.onerror = null;
-      resolve(result);
-    };
-    const timeout = setTimeout(() => finish(undefined), 4000);
-    video.onloadedmetadata = () => {
-      video.currentTime = Math.min(0.5, (video.duration || 1) / 2);
-    };
-    video.onseeked = () => {
-      try {
-        const canvas = document.createElement("canvas");
-        canvas.width = 320;
-        canvas.height = 180;
-        const ctx = canvas.getContext("2d");
-        if (!ctx) return finish(undefined);
-        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-        finish(canvas.toDataURL("image/jpeg", 0.85));
-      } catch {
-        finish(undefined);
-      }
-    };
-    video.onerror = () => finish(undefined);
   });
 }
 

@@ -921,6 +921,34 @@ body {
   pointer-events: none;
 }
 
+.clip-filmstrip {
+  position: absolute;
+  left: 0;
+  top: 0;
+  display: flex;
+  pointer-events: none;
+  overflow: hidden;
+  border-top: 3px solid #111;
+  border-bottom: 3px solid #111;
+  background:
+    radial-gradient(circle, #111 55%, transparent 56%) repeat-x left 1px / 10px 5px,
+    radial-gradient(circle, #111 55%, transparent 56%) repeat-x left bottom / 10px 5px;
+  background-color: #000;
+  padding: 5px 0;
+}
+
+.filmstrip-frame {
+  height: 100%;
+  background-size: cover;
+  background-position: center;
+  border-right: 1px solid #111;
+  flex-shrink: 0;
+}
+
+.filmstrip-frame:last-child {
+  border-right: none;
+}
+
 .timeline-transition {
   position: absolute;
   top: 4px;
