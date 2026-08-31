@@ -15,7 +15,7 @@ import { Scissors, Trash2, Plus, X, ZoomIn, ZoomOut } from "lucide-react";
 import { Waveform } from "./Waveform";
 import { Filmstrip } from "./Filmstrip";
 
-const TRACK_HEIGHT = 56;
+const TRACK_HEIGHT = 106;
 const RULER_HEIGHT = 24;
 const SNAP_PX = 8;
 const DEFAULT_TRANSITION_OVERLAP = 1.0;
