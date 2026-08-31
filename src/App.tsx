@@ -1,6 +1,5 @@
 import { useEffect } from "react";
 import { MediaBin } from "./components/MediaBin";
-import { TransitionsPanel } from "./components/TransitionsPanel";
 import { TextClipPanel } from "./components/TextClipPanel";
 import { Timeline } from "./components/Timeline";
 import { Preview } from "./components/Preview";
@@ -82,7 +81,6 @@ function App() {
       <div className="app-body">
         <div className="sidebar">
           <MediaBin />
-          <TransitionsPanel />
           <TextClipPanel />
         </div>
         <Preview />
