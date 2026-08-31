@@ -1,6 +1,6 @@
 import { useState, useRef, useCallback, useEffect } from "react";
 import { useEditorStore } from "../store/editorStore";
-import { exportTimeline } from "../lib/ffmpeg-export";
+import { exportTimeline, EXPORT_RESOLUTIONS, type ExportResolutionKey } from "../lib/ffmpeg-export";
 import { Download, Loader2 } from "lucide-react";
 
 export function ExportPanel() {
@@ -11,6 +11,7 @@ export function ExportPanel() {
   const [status, setStatus] = useState<"idle" | "loading" | "exporting" | "done" | "error">("idle");
   const [progress, setProgress] = useState(0);
   const [error, setError] = useState("");
+  const [resolution, setResolution] = useState<ExportResolutionKey>("1080p");
 
   // ffmpeg's progress event can fire many times per second (it runs in its own
   // Web Worker, so this doesn't block encoding, but forwarding every tick
@@ -49,7 +50,15 @@ export function ExportPanel() {
     setProgress(0);
     try {
       setStatus("exporting");
-      const blob = await exportTimeline(clips, sources, exportTrackId, handleProgress, tracks, transitions);
+      const blob = await exportTimeline(
+        clips,
+        sources,
+        exportTrackId,
+        handleProgress,
+        tracks,
+        transitions,
+        EXPORT_RESOLUTIONS[resolution]
+      );
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
@@ -63,19 +72,36 @@ export function ExportPanel() {
     }
   };
 
+  const isBusy = status === "exporting" || status === "loading";
+
   return (
     <div className="export-panel">
-      <button className="btn-primary" disabled={!hasClips || status === "exporting" || status === "loading"} onClick={handleExport}>
-        {status === "exporting" || status === "loading" ? (
-          <>
-            <Loader2 size={14} className="spin" /> {status === "loading" ? "Loading engine..." : `Exporting ${Math.min(100, Math.max(0, progress * 100)).toFixed(0)}%`}
-          </>
-        ) : (
-          <>
-            <Download size={14} /> Export MP4
-          </>
-        )}
-      </button>
+      <div className="export-panel-row">
+        <select
+          className="export-resolution"
+          value={resolution}
+          disabled={isBusy}
+          onChange={(e) => setResolution(e.target.value as ExportResolutionKey)}
+          title="Export resolution"
+        >
+          <option value="1080p">1080p (Full HD)</option>
+          <option value="4k">4K (Ultra HD)</option>
+        </select>
+        <button className="btn-primary" disabled={!hasClips || isBusy} onClick={handleExport}>
+          {status === "exporting" || status === "loading" ? (
+            <>
+              <Loader2 size={14} className="spin" /> {status === "loading" ? "Loading engine..." : `Exporting ${Math.min(100, Math.max(0, progress * 100)).toFixed(0)}%`}
+            </>
+          ) : (
+            <>
+              <Download size={14} /> Export MP4
+            </>
+          )}
+        </button>
+      </div>
+      {resolution === "4k" && !isBusy && (
+        <div className="export-hint">4K is much slower and uses more memory - may fail on long timelines.</div>
+      )}
       {status === "error" && <div className="export-error">{error}</div>}
       {status === "done" && <div className="export-done">Export complete</div>}
     </div>
