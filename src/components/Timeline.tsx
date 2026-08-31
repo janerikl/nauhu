@@ -13,8 +13,9 @@ import {
 } from "../lib/timeline-math";
 import { Scissors, Trash2, Plus, X, ZoomIn, ZoomOut } from "lucide-react";
 import { Waveform } from "./Waveform";
+import { Filmstrip } from "./Filmstrip";
 
-const TRACK_HEIGHT = 56;
+const TRACK_HEIGHT = 106;
 const RULER_HEIGHT = 24;
 const SNAP_PX = 8;
 const DEFAULT_TRANSITION_OVERLAP = 1.0;
@@ -545,19 +546,35 @@ export function Timeline() {
                       // on the audio track can point at a video source (its
                       // audio split out via mutedVideo) and still has
                       // decodable audio worth drawing a waveform for.
-                      if (track.kind !== "audio" || !source) return null;
+                      if (!source) return null;
                       const clipWidth =
                         timeToPx(clip.start + clipDuration(clip)) - timeToPx(clip.start);
-                      return (
-                        <Waveform
-                          sourceId={source.id}
-                          blob={source.blob}
-                          sourceIn={clip.sourceIn}
-                          sourceOut={clip.sourceOut}
-                          width={Math.max(4, clipWidth)}
-                          height={TRACK_HEIGHT - 8}
-                        />
-                      );
+                      if (track.kind === "audio") {
+                        return (
+                          <Waveform
+                            sourceId={source.id}
+                            blob={source.blob}
+                            sourceIn={clip.sourceIn}
+                            sourceOut={clip.sourceOut}
+                            width={Math.max(4, clipWidth)}
+                            height={TRACK_HEIGHT - 8}
+                          />
+                        );
+                      }
+                      if (track.kind === "video" && (source.kind === "video" || source.kind === "image")) {
+                        return (
+                          <Filmstrip
+                            sourceId={source.id}
+                            url={source.url}
+                            kind={source.kind}
+                            sourceIn={clip.sourceIn}
+                            sourceOut={clip.sourceOut}
+                            width={Math.max(4, clipWidth)}
+                            height={TRACK_HEIGHT - 8}
+                          />
+                        );
+                      }
+                      return null;
                     })()}
                     <div
                       className="clip-handle clip-handle-right"
