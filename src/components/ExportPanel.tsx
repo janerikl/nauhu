@@ -32,6 +32,20 @@ export function ExportPanel() {
     };
   }, []);
 
+  // Export runs entirely in this page (ffmpeg.wasm) - a refresh/close/navigate
+  // away has no way to resume it, so warn before the browser silently
+  // discards an in-progress export.
+  useEffect(() => {
+    if (status !== "loading" && status !== "exporting") return;
+    const onBeforeUnload = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      // Legacy requirement in some browsers for the confirmation dialog to appear.
+      e.returnValue = "";
+    };
+    window.addEventListener("beforeunload", onBeforeUnload);
+    return () => window.removeEventListener("beforeunload", onBeforeUnload);
+  }, [status]);
+
   // The primary track defines the export's base timeline/duration; any other
   // video tracks are composited on top of it (see exportTimeline). Pick the
   // first video track, in track order, that actually has clips rather than
