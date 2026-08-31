@@ -8,7 +8,7 @@ import {
   findCrossTrackActivePair,
   getTransitionType,
 } from "../lib/timeline-math";
-import { EXPORT_HEIGHT } from "../lib/ffmpeg-export";
+import { EXPORT_HEIGHT, EXPORT_WIDTH } from "../lib/ffmpeg-export";
 import { Play, Pause, SkipBack } from "lucide-react";
 
 /** Fraction (0-1) visible for a text clip at `playhead`, ramping over its fadeIn/fadeOut windows. */
@@ -552,23 +552,41 @@ export function Preview() {
     const sourceB: FrameSource | null = isImageSecondary ? img2Ref.current : video2Ref.current;
     if (!canvas || !sourceA || !sourceB || !activeClip || !secondaryClip) return;
 
-    const overlapDuration = clipEnd(activeClip) - secondaryClip.start;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
 
-    const draw = () => {
+    const overlapDuration = clipEnd(activeClip) - secondaryClip.start;
+    // Compositing runs at the on-screen preview's quality bar (matching the
+    // export target elsewhere in this file), not the source footage's raw
+    // resolution - a 4K/6K clip would otherwise be fully rasterized and
+    // blended every frame only to be scaled back down by the canvas's own
+    // CSS box, burning fill-rate for pixels nobody sees.
+    const maxDim = Math.max(EXPORT_WIDTH, EXPORT_HEIGHT);
+    let lastFrameTs = 0;
+    // ~30fps is plenty for a blended preview frame (most source footage is
+    // 24-30fps anyway) and halves the compositing work a 60Hz+ display would
+    // otherwise demand.
+    const FRAME_INTERVAL_MS = 1000 / 30;
+
+    const draw = (now: number) => {
+      rafCanvasRef.current = requestAnimationFrame(draw);
+      if (now - lastFrameTs < FRAME_INTERVAL_MS) return;
+      lastFrameTs = now;
+
       const { w: aw, h: ah } = frameSize(sourceA);
       const { w: bw, h: bh } = frameSize(sourceB);
-      const w = aw || bw || 1280;
-      const h = ah || bh || 720;
+      const rawW = aw || bw || 1280;
+      const rawH = ah || bh || 720;
+      const downscale = Math.min(1, maxDim / Math.max(rawW, rawH));
+      const w = Math.round(rawW * downscale);
+      const h = Math.round(rawH * downscale);
       if (canvas.width !== w) canvas.width = w;
       if (canvas.height !== h) canvas.height = h;
-      const ctx = canvas.getContext("2d");
-      if (!ctx) return;
       const p =
         overlapDuration > 0
           ? Math.min(1, Math.max(0, (useEditorStore.getState().playhead - secondaryClip.start) / overlapDuration))
           : 0;
       compositeTransition(ctx, w, h, sourceA, sourceB, transitionType, p);
-      rafCanvasRef.current = requestAnimationFrame(draw);
     };
 
     rafCanvasRef.current = requestAnimationFrame(draw);
