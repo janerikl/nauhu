@@ -94,6 +94,7 @@ interface EditorState {
   removeFolder: (name: string) => void;
   moveSourceToFolder: (sourceId: string, folder: string) => void;
   renameSource: (sourceId: string, name: string) => void;
+  updateSourceThumbnail: (sourceId: string, thumbnail: string) => void;
   reorderSource: (sourceId: string, beforeId: string) => void;
   addTrack: (kind: "video" | "audio" | "text") => string;
   removeTrack: (trackId: string) => void;
@@ -247,6 +248,11 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       sources: s.sources.map((src) => (src.id === sourceId ? { ...src, name: trimmed } : src)),
     }));
   },
+
+  updateSourceThumbnail: (sourceId, thumbnail) =>
+    set((s) => ({
+      sources: s.sources.map((src) => (src.id === sourceId ? { ...src, thumbnail } : src)),
+    })),
 
   reorderSource: (sourceId, beforeId) => {
     if (sourceId === beforeId) return;

@@ -17,6 +17,7 @@ import {
   FolderInput,
   FolderMinus,
   CircleDot,
+  RefreshCw,
 } from "lucide-react";
 import { ensurePlayableVideo } from "../lib/transcode";
 
@@ -97,7 +98,7 @@ function captureVideoThumbnail(url: string): Promise<string | undefined> {
         const ctx = canvas.getContext("2d");
         if (!ctx) return finish(undefined);
         ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-        finish(canvas.toDataURL("image/jpeg", 0.6));
+        finish(canvas.toDataURL("image/jpeg", 0.85));
       } catch {
         finish(undefined);
       }
@@ -130,6 +131,7 @@ export function MediaBin() {
   const moveSourceToFolder = useEditorStore((s) => s.moveSourceToFolder);
   const renameSource = useEditorStore((s) => s.renameSource);
   const reorderSource = useEditorStore((s) => s.reorderSource);
+  const updateSourceThumbnail = useEditorStore((s) => s.updateSourceThumbnail);
   const inputRef = useRef<HTMLInputElement>(null);
   const [convertingNames, setConvertingNames] = useState<Set<string>>(new Set());
   const [collapsedFolders, setCollapsedFolders] = useState<Set<string>>(loadCollapsedFolders);
@@ -226,6 +228,13 @@ export function MediaBin() {
   const commitRenameSource = () => {
     if (renamingId) renameSource(renamingId, renamingValue);
     setRenamingId(null);
+  };
+
+  const regenerateThumbnail = async (source: MediaSource) => {
+    setContextMenu(null);
+    const thumbnail =
+      source.kind === "image" ? source.url : await captureVideoThumbnail(source.url);
+    if (thumbnail) updateSourceThumbnail(source.id, thumbnail);
   };
 
   const startRenameFolder = (folder: string) => {
@@ -606,6 +615,9 @@ export function MediaBin() {
         >
           <button onClick={() => startRenameSource(contextSource)}>
             <Pencil size={12} /> Rename
+          </button>
+          <button onClick={() => regenerateThumbnail(contextSource)}>
+            <RefreshCw size={12} /> Regenerate thumbnail
           </button>
           <div className="media-context-menu-submenu-label">
             <FolderInput size={12} /> Move to
