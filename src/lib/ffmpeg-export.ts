@@ -18,13 +18,26 @@ export async function loadFFmpeg(onLog?: (msg: string) => void): Promise<FFmpeg>
   return instance;
 }
 
-/** Design-space resolution: the Preview overlay scales text clips against EXPORT_HEIGHT so on-screen sizing matches the exported burn-in. */
+/** Design-space resolution: the Preview overlay scales text clips against EXPORT_HEIGHT so on-screen sizing matches the exported burn-in. This stays fixed regardless of the actual output resolution below - it's what the live editor/preview is designed against, not necessarily what a given export renders at. */
 export const EXPORT_WIDTH = 1920;
 export const EXPORT_HEIGHT = 1080;
 const EXPORT_FPS = 30;
 
-/** Scales/pads any source frame size to the fixed export resolution so every segment shares identical params for concat. */
-const SCALE_FILTER = `scale=${EXPORT_WIDTH}:${EXPORT_HEIGHT}:force_original_aspect_ratio=decrease,pad=${EXPORT_WIDTH}:${EXPORT_HEIGHT}:(ow-iw)/2:(oh-ih)/2,setsar=1`;
+/** Selectable export output resolutions - the design resolution (1080p) plus 4K. */
+export const EXPORT_RESOLUTIONS = {
+  "1080p": { width: EXPORT_WIDTH, height: EXPORT_HEIGHT },
+  "4k": { width: 3840, height: 2160 },
+} as const;
+export type ExportResolutionKey = keyof typeof EXPORT_RESOLUTIONS;
+export interface OutputSize {
+  width: number;
+  height: number;
+}
+
+/** Scales/pads any source frame size to `w`x`h` so every segment shares identical params for concat. */
+function scaleFilter(w: number, h: number): string {
+  return `scale=${w}:${h}:force_original_aspect_ratio=decrease,pad=${w}:${h}:(ow-iw)/2:(oh-ih)/2,setsar=1`;
+}
 
 const TEXT_MARGIN_PX = 40;
 const FONT_FILE_URL = "/fonts/DejaVuSans.ttf";
@@ -58,15 +71,23 @@ function escapeDrawtext(text: string): string {
     .replace(/\r?\n/g, " ");
 }
 
-function buildDrawtextFilter(clip: Clip, outStart: number, outEnd: number): string {
+/**
+ * `resolutionScale` (output height / EXPORT_HEIGHT) keeps text proportionally
+ * sized to the output frame - the Preview's WYSIWYG font sizes/margins are
+ * expressed in 1080p design pixels, so a 4K export scales them up rather than
+ * burning in 1080p-sized (relatively tiny) text onto a 4x-larger frame.
+ */
+function buildDrawtextFilter(clip: Clip, outStart: number, outEnd: number, resolutionScale: number): string {
   const style = clip.text!;
+  const margin = Math.round(TEXT_MARGIN_PX * resolutionScale);
+  const fontSize = Math.round(style.fontSize * resolutionScale);
   const x =
-    style.align === "left" ? String(TEXT_MARGIN_PX)
-    : style.align === "right" ? `w-text_w-${TEXT_MARGIN_PX}`
+    style.align === "left" ? String(margin)
+    : style.align === "right" ? `w-text_w-${margin}`
     : "(w-text_w)/2";
   const y =
-    style.verticalAlign === "top" ? String(TEXT_MARGIN_PX)
-    : style.verticalAlign === "bottom" ? `h-text_h-${TEXT_MARGIN_PX}`
+    style.verticalAlign === "top" ? String(margin)
+    : style.verticalAlign === "bottom" ? `h-text_h-${margin}`
     : "(h-text_h)/2";
 
   const fadeIn = style.fadeIn > 0 ? style.fadeIn : 0;
@@ -81,7 +102,7 @@ function buildDrawtextFilter(clip: Clip, outStart: number, outEnd: number): stri
   return (
     `drawtext=fontfile=font.ttf` +
     `:text='${escapeDrawtext(style.content)}'` +
-    `:fontsize=${style.fontSize}` +
+    `:fontsize=${fontSize}` +
     `:fontcolor=${style.color}` +
     `:x=${x}:y=${y}` +
     `:enable='between(t,${outStart},${outEnd})'` +
@@ -103,7 +124,8 @@ async function encodeClipSegment(
   clip: Clip,
   source: MediaSource,
   inputName: string,
-  outputName: string
+  outputName: string,
+  outputSize: OutputSize
 ): Promise<void> {
   const duration = clip.sourceOut - clip.sourceIn;
   const isImage = source.kind === "image";
@@ -116,10 +138,11 @@ async function encodeClipSegment(
   // 0-based duration - it has nothing to do with a second clip, unlike the
   // (currently unimplemented in export) two-clip Transition blends.
   const fadeOutBlack = clip.fadeOutBlack && clip.fadeOutBlack > 0 ? Math.min(clip.fadeOutBlack, duration) : 0;
+  const scale = scaleFilter(outputSize.width, outputSize.height);
   const vf =
     fadeOutBlack > 0
-      ? `${SCALE_FILTER},fade=t=out:st=${duration - fadeOutBlack}:d=${fadeOutBlack}:color=black`
-      : SCALE_FILTER;
+      ? `${scale},fade=t=out:st=${duration - fadeOutBlack}:d=${fadeOutBlack}:color=black`
+      : scale;
 
   const silentAudioArgs = ["-f", "lavfi", "-i", `anullsrc=r=${AUDIO_SAMPLE_RATE}:cl=stereo`];
   const audioEncodeArgs = ["-c:a", "aac", "-ar", String(AUDIO_SAMPLE_RATE), "-ac", "2"];
@@ -177,13 +200,14 @@ async function encodeNormalizedVideo(
   subIn: number,
   subOut: number,
   rawInputName: string,
-  outputName: string
+  outputName: string,
+  outputSize: OutputSize
 ): Promise<void> {
   await ff.writeFile(rawInputName, await fetchFile(source.url));
   await ff.exec([
     ...subRangeInputArgs(source, subIn, subOut),
     "-i", rawInputName,
-    "-vf", `${SCALE_FILTER},fps=${EXPORT_FPS}`,
+    "-vf", `${scaleFilter(outputSize.width, outputSize.height)},fps=${EXPORT_FPS}`,
     "-an",
     "-c:v", "libx264",
     "-pix_fmt", "yuv420p",
@@ -221,12 +245,13 @@ async function encodeXfadeTransitionVideo(
   prevSubIn: number,
   nextSource: MediaSource,
   nextSubIn: number,
-  outputName: string
+  outputName: string,
+  outputSize: OutputSize
 ): Promise<void> {
   const aName = "trans-a.mp4";
   const bName = "trans-b.mp4";
-  await encodeNormalizedVideo(ff, prevSource, prevSubIn, prevSubIn + duration, "trans-a-in", aName);
-  await encodeNormalizedVideo(ff, nextSource, nextSubIn, nextSubIn + duration, "trans-b-in", bName);
+  await encodeNormalizedVideo(ff, prevSource, prevSubIn, prevSubIn + duration, "trans-a-in", aName, outputSize);
+  await encodeNormalizedVideo(ff, nextSource, nextSubIn, nextSubIn + duration, "trans-b-in", bName, outputSize);
   await ff.exec([
     "-i", aName,
     "-i", bName,
@@ -277,7 +302,8 @@ async function encodeFadeToBlackTransitionVideo(
   prevSubIn: number,
   nextSource: MediaSource,
   nextSubIn: number,
-  outputName: string
+  outputName: string,
+  outputSize: OutputSize
 ): Promise<void> {
   const half = duration / 2;
   const aName = "trans-a.mp4";
@@ -285,10 +311,10 @@ async function encodeFadeToBlackTransitionVideo(
   const black1Name = "trans-black1.mp4";
   const black2Name = "trans-black2.mp4";
   const blackSource: MediaSource = { id: "black", kind: "image", name: "black", url: getBlackImageDataUrl() } as MediaSource;
-  await encodeNormalizedVideo(ff, prevSource, prevSubIn, prevSubIn + half, "trans-a-in", aName);
-  await encodeNormalizedVideo(ff, nextSource, nextSubIn, nextSubIn + half, "trans-b-in", bName);
-  await encodeNormalizedVideo(ff, blackSource, 0, half, "trans-black1-in", black1Name);
-  await encodeNormalizedVideo(ff, blackSource, 0, half, "trans-black2-in", black2Name);
+  await encodeNormalizedVideo(ff, prevSource, prevSubIn, prevSubIn + half, "trans-a-in", aName, outputSize);
+  await encodeNormalizedVideo(ff, nextSource, nextSubIn, nextSubIn + half, "trans-b-in", bName, outputSize);
+  await encodeNormalizedVideo(ff, blackSource, 0, half, "trans-black1-in", black1Name, outputSize);
+  await encodeNormalizedVideo(ff, blackSource, 0, half, "trans-black2-in", black2Name, outputSize);
   await ff.exec([
     "-i", aName,
     "-i", bName,
@@ -326,12 +352,13 @@ async function encodeZoomTransitionVideo(
   prevSubIn: number,
   nextSource: MediaSource,
   nextSubIn: number,
-  outputName: string
+  outputName: string,
+  outputSize: OutputSize
 ): Promise<void> {
   const aName = "zoom-a.mp4";
   const bName = "zoom-b.mp4";
-  await encodeNormalizedVideo(ff, prevSource, prevSubIn, prevSubIn + duration, "zoom-a-in", aName);
-  await encodeNormalizedVideo(ff, nextSource, nextSubIn, nextSubIn + duration, "zoom-b-in", bName);
+  await encodeNormalizedVideo(ff, prevSource, prevSubIn, prevSubIn + duration, "zoom-a-in", aName, outputSize);
+  await encodeNormalizedVideo(ff, nextSource, nextSubIn, nextSubIn + duration, "zoom-b-in", bName, outputSize);
 
   const frameCount = Math.max(1, Math.round(duration * EXPORT_FPS));
   await ff.exec(["-i", aName, "-start_number", "0", "-vf", `fps=${EXPORT_FPS}`, "zoom-a-%04d.png"]);
@@ -342,16 +369,16 @@ async function encodeZoomTransitionVideo(
     const p = frameCount > 1 ? i / (frameCount - 1) : 1;
     const scaleA = 1 + p * 0.3;
     const scaleB = 1.3 - p * 0.3;
-    const wa = Math.round(EXPORT_WIDTH * scaleA);
-    const ha = Math.round(EXPORT_HEIGHT * scaleA);
-    const wb = Math.round(EXPORT_WIDTH * scaleB);
-    const hb = Math.round(EXPORT_HEIGHT * scaleB);
+    const wa = Math.round(outputSize.width * scaleA);
+    const ha = Math.round(outputSize.height * scaleA);
+    const wb = Math.round(outputSize.width * scaleB);
+    const hb = Math.round(outputSize.height * scaleB);
     await ff.exec([
       "-i", `zoom-a-${pad(i)}.png`,
       "-i", `zoom-b-${pad(i)}.png`,
       "-filter_complex",
-      `[0:v]scale=${wa}:${ha},crop=${EXPORT_WIDTH}:${EXPORT_HEIGHT}[za];` +
-        `[1:v]scale=${wb}:${hb},crop=${EXPORT_WIDTH}:${EXPORT_HEIGHT}[zb];` +
+      `[0:v]scale=${wa}:${ha},crop=${outputSize.width}:${outputSize.height}[za];` +
+        `[1:v]scale=${wb}:${hb},crop=${outputSize.width}:${outputSize.height}[zb];` +
         `[za][zb]blend=all_expr='A*(1-${p})+B*(${p})'`,
       "-frames:v", "1",
       `zoom-out-${pad(i)}.png`,
@@ -447,17 +474,18 @@ async function encodeTransitionSegment(
   prevSubIn: number,
   nextSource: MediaSource,
   nextSubIn: number,
-  outputName: string
+  outputName: string,
+  outputSize: OutputSize
 ): Promise<void> {
   const videoName = "trans-video.mp4";
   const audioName = "trans-audio.m4a";
   const xfadeName = xfadeNameFor(type);
   if (xfadeName) {
-    await encodeXfadeTransitionVideo(ff, xfadeName, duration, prevSource, prevSubIn, nextSource, nextSubIn, videoName);
+    await encodeXfadeTransitionVideo(ff, xfadeName, duration, prevSource, prevSubIn, nextSource, nextSubIn, videoName, outputSize);
   } else if (type === "fadeToBlack") {
-    await encodeFadeToBlackTransitionVideo(ff, duration, prevSource, prevSubIn, nextSource, nextSubIn, videoName);
+    await encodeFadeToBlackTransitionVideo(ff, duration, prevSource, prevSubIn, nextSource, nextSubIn, videoName, outputSize);
   } else {
-    await encodeZoomTransitionVideo(ff, duration, prevSource, prevSubIn, nextSource, nextSubIn, videoName);
+    await encodeZoomTransitionVideo(ff, duration, prevSource, prevSubIn, nextSource, nextSubIn, videoName, outputSize);
   }
   await encodeTransitionAudio(ff, duration, prevSource, prevSubIn, nextSource, nextSubIn, audioName);
   await ff.exec([
@@ -484,7 +512,8 @@ export async function exportTimeline(
   trackId: string,
   onProgress?: (ratio: number) => void,
   tracks: Track[] = [],
-  transitions: TimelineTransition[] = []
+  transitions: TimelineTransition[] = [],
+  outputSize: OutputSize = { width: EXPORT_WIDTH, height: EXPORT_HEIGHT }
 ): Promise<Blob> {
   const ff = await loadFFmpeg();
   const trackClips = clips
@@ -553,7 +582,7 @@ export async function exportTimeline(
       const inputName = `in-${i}.${ext}`;
       const outputName = `seg-${i}.mp4`;
       await ff.writeFile(inputName, await fetchFile(source.url));
-      await encodeClipSegment(ff, effectiveClip, source, inputName, outputName);
+      await encodeClipSegment(ff, effectiveClip, source, inputName, outputName, outputSize);
       segmentNames.push(outputName);
       // NOTE: uses this clip's own (possibly transition-reduced) duration, not
       // its full sourceOut-sourceIn range - so text/overlay/audio clips whose
@@ -581,7 +610,8 @@ export async function exportTimeline(
           clip.sourceOut - tailTransition.duration,
           nextSource,
           nextClip.sourceIn,
-          outputName
+          outputName,
+          outputSize
         );
         segmentNames.push(outputName);
         durationDone += tailTransition.duration;
@@ -620,7 +650,7 @@ export async function exportTimeline(
       const inputName = `ov-in-${i}.${isImage ? "jpg" : "mp4"}`;
       const outputName = `ov-seg-${i}.mp4`;
       await ff.writeFile(inputName, await fetchFile(source.url));
-      await encodeClipSegment(ff, clip, source, inputName, outputName);
+      await encodeClipSegment(ff, clip, source, inputName, outputName, outputSize);
       await ff.deleteFile(inputName);
       overlayInputs.push(outputName);
       overlayWindows.push({
@@ -665,10 +695,11 @@ export async function exportTimeline(
   let finalOutputName = compositedOutputName;
   if (textClips.length > 0) {
     await ff.writeFile("font.ttf", await fetchFile(FONT_FILE_URL));
+    const resolutionScale = outputSize.height / EXPORT_HEIGHT;
     const filters = textClips.map((clip) => {
       const outStart = mapTimeToExport(clip.start, segmentSpans);
       const outEnd = mapTimeToExport(clipEnd(clip), segmentSpans);
-      return buildDrawtextFilter(clip, outStart, outEnd);
+      return buildDrawtextFilter(clip, outStart, outEnd, resolutionScale);
     });
     await ff.exec([
       "-i", compositedOutputName,
