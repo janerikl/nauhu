@@ -221,7 +221,8 @@ body {
 }
 
 .sidebar {
-  width: 240px;
+  width: 300px;
+  flex-shrink: 0;
   border-right: 1px solid var(--border);
   background: var(--bg-panel);
   display: flex;

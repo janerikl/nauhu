@@ -80,11 +80,13 @@ function captureVideoThumbnail(url: string): Promise<string | undefined> {
     video.playsInline = true;
     video.src = url;
     const finish = (result: string | undefined) => {
+      clearTimeout(timeout);
       video.onseeked = null;
       video.onerror = null;
       resolve(result);
     };
-    video.onloadeddata = () => {
+    const timeout = setTimeout(() => finish(undefined), 4000);
+    video.onloadedmetadata = () => {
       video.currentTime = Math.min(0.5, (video.duration || 1) / 2);
     };
     video.onseeked = () => {
