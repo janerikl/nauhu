@@ -92,8 +92,8 @@ function captureVideoThumbnail(url: string): Promise<string | undefined> {
     video.onseeked = () => {
       try {
         const canvas = document.createElement("canvas");
-        canvas.width = 96;
-        canvas.height = 54;
+        canvas.width = 320;
+        canvas.height = 180;
         const ctx = canvas.getContext("2d");
         if (!ctx) return finish(undefined);
         ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
@@ -110,6 +110,12 @@ interface ContextMenuState {
   x: number;
   y: number;
   sourceId: string;
+}
+
+interface HoverPreviewState {
+  x: number;
+  y: number;
+  thumbnail: string;
 }
 
 export function MediaBin() {
@@ -138,6 +144,7 @@ export function MediaBin() {
   const [renamingValue, setRenamingValue] = useState("");
   const [renamingFolder, setRenamingFolder] = useState<string | null>(null);
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
+  const [hoverPreview, setHoverPreview] = useState<HoverPreviewState | null>(null);
 
   const usedSourceIds = useMemo(() => new Set(clips.map((c) => c.sourceId)), [clips]);
 
@@ -415,6 +422,7 @@ export function MediaBin() {
           e.preventDefault();
           handleFiles(e.dataTransfer.files);
         }}
+        onScroll={() => setHoverPreview(null)}
       >
         {sources.length === 0 && convertingNames.size === 0 && folderNames.length === 0 ? (
           <div className="media-bin-empty">Drop video/audio files here or click Import</div>
@@ -528,7 +536,16 @@ export function MediaBin() {
                             onChange={() => toggleSelected(s.id, true)}
                           />
                           {s.thumbnail ? (
-                            <img className="media-item-thumb" src={s.thumbnail} alt="" />
+                            <img
+                              className="media-item-thumb"
+                              src={s.thumbnail}
+                              alt=""
+                              onMouseEnter={(e) => {
+                                const rect = e.currentTarget.getBoundingClientRect();
+                                setHoverPreview({ x: rect.left, y: rect.top, thumbnail: s.thumbnail! });
+                              }}
+                              onMouseLeave={() => setHoverPreview(null)}
+                            />
                           ) : (
                             <Icon size={14} />
                           )}
@@ -616,6 +633,14 @@ export function MediaBin() {
             <Trash2 size={12} /> Delete
           </button>
         </div>
+      )}
+      {hoverPreview && (
+        <img
+          className="media-item-thumb-preview"
+          src={hoverPreview.thumbnail}
+          alt=""
+          style={{ left: hoverPreview.x, top: hoverPreview.y }}
+        />
       )}
     </div>
   );
