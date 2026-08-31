@@ -25,6 +25,8 @@ async function getFrame(sourceId: string, url: string, time: number): Promise<st
 interface FilmstripProps {
   sourceId: string;
   url: string;
+  /** static-image sources have one frame, repeated across every slot */
+  kind: "video" | "image";
   /** seconds into the source where the visible clip region starts */
   sourceIn: number;
   /** seconds into the source where the visible clip region ends */
@@ -33,13 +35,13 @@ interface FilmstripProps {
   height: number;
 }
 
-export function Filmstrip({ sourceId, url, sourceIn, sourceOut, width, height }: FilmstripProps) {
-  const [frames, setFrames] = useState<string[]>([]);
+export function Filmstrip({ sourceId, url, kind, sourceIn, sourceOut, width, height }: FilmstripProps) {
+  const [videoFrames, setVideoFrames] = useState<string[]>([]);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
   useEffect(() => {
-    if (width < MIN_WIDTH) {
-      setFrames([]);
+    if (kind !== "video" || width < MIN_WIDTH) {
+      setVideoFrames([]);
       return;
     }
     clearTimeout(debounceRef.current);
@@ -48,16 +50,25 @@ export function Filmstrip({ sourceId, url, sourceIn, sourceOut, width, height }:
       const timestamps = filmstripTimestamps(width, sourceIn, sourceOut, FRAME_INTERVAL_PX);
       Promise.all(timestamps.map((t) => getFrame(sourceId, url, t))).then((results) => {
         if (cancelled) return;
-        setFrames(results.filter((f): f is string => !!f));
+        setVideoFrames(results.filter((f): f is string => !!f));
       });
       return () => {
         cancelled = true;
       };
     }, DEBOUNCE_MS);
     return () => clearTimeout(debounceRef.current);
-  }, [sourceId, url, sourceIn, sourceOut, width]);
+  }, [kind, sourceId, url, sourceIn, sourceOut, width]);
 
-  if (width < MIN_WIDTH || frames.length === 0) return null;
+  if (width < MIN_WIDTH) return null;
+
+  // A static image has no timeline to seek, so every slot repeats the same
+  // frame - no async capture or debounce needed, just fill synchronously.
+  const frames =
+    kind === "image"
+      ? Array(filmstripTimestamps(width, sourceIn, sourceOut, FRAME_INTERVAL_PX).length).fill(url)
+      : videoFrames;
+
+  if (frames.length === 0) return null;
 
   return (
     <div className="clip-filmstrip" style={{ width, height }}>

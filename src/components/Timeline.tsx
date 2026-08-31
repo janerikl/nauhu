@@ -561,11 +561,12 @@ export function Timeline() {
                           />
                         );
                       }
-                      if (track.kind === "video" && source.kind === "video") {
+                      if (track.kind === "video" && (source.kind === "video" || source.kind === "image")) {
                         return (
                           <Filmstrip
                             sourceId={source.id}
                             url={source.url}
+                            kind={source.kind}
                             sourceIn={clip.sourceIn}
                             sourceOut={clip.sourceOut}
                             width={Math.max(4, clipWidth)}
